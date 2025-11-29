@@ -73,35 +73,35 @@ SmokeNMirror is a full-stack financial analysis application featuring:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Frontend (index.html)                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Stock Search │  │ Macro Search │  │ Chart Viewer │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│                     Frontend (index.html)                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ Stock Search │  │ Macro Search │  │ Chart Viewer │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
 └───────────────────────────┬─────────────────────────────────┘
                             │ REST API
 ┌───────────────────────────┴─────────────────────────────────┐
-│                    Flask Backend (app.py)                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Stock Agent  │  │ Macro Agent  │  │  API Routes  │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────┘      │
-│         │                  │                                 │
+│                    Flask Backend (app.py)                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ Stock Agent  │  │ Macro Agent  │  │  API Routes  │       │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘       │
+│         │                  │                                │
 │  ┌──────┴──────────────────┴──────┐                         │
-│  │      LangChain Tools            │                         │
-│  │  • get_financial_metrics()      │                         │
-│  │  • get_technical_indicators()   │                         │
-│  │  • get_market_news()            │                         │
-│  │  • get_economic_indicators()    │                         │
-│  │  • get_fed_policy_info()        │                         │
-│  │  • get_bond_yields()            │                         │
-│  └─────────────────────────────────┘                         │
+│  │      LangChain Tools            │                        │
+│  │  • get_financial_metrics()      │                        │
+│  │  • get_technical_indicators()   │                        │
+│  │  • get_market_news()            │                        │
+│  │  • get_economic_indicators()    │                        │
+│  │  • get_fed_policy_info()        │                        │
+│  │  • get_bond_yields()            │                        │
+│  └─────────────────────────────────┘                        │
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────┴─────────────────────────────────┐
-│                  External Data Sources                       │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │  Yahoo   │ │   FRED   │ │ Finnhub  │ │ Polygon  │      │
-│  │ Finance  │ │   API    │ │   API    │ │   API    │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│                  External Data Sources                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│  │  Yahoo   │ │   FRED   │ │ Finnhub  │ │ Polygon  │        │
+│  │ Finance  │ │   API    │ │   API    │ │   API    │        │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
