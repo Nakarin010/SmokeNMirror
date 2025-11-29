@@ -1,26 +1,140 @@
-# Financial Analysis Agent
+# SmokeNMirror - Agentic Financial Analysis Platform
 
-An AI-powered financial analysis system using LangChain agents to answer financial questions with comprehensive market data, technical indicators, and economic insights.
+A modern web-based AI-powered financial analysis platform that combines LangChain agents with real-time market data, technical indicators, and interactive TradingView charts to provide comprehensive stock and macroeconomic analysis.
+
+## Overview
+
+SmokeNMirror is a full-stack financial analysis application featuring:
+- **Interactive Web Interface**: Modern, responsive UI with dark/light themes
+- **AI-Powered Analysis**: LangChain agents using Groq's Llama-4 for intelligent market insights
+- **Real-Time Data**: Integration with Yahoo Finance, FRED, Finnhub, and Polygon APIs
+- **Advanced Charts**: TradingView Lightweight Charts for professional-grade visualization
+- **Dual Analysis Modes**: Stock analysis and global macro analysis
 
 ## Features
 
-- **Multi-LLM Architecture**: Uses Groq Llama-4 for primary analysis and Mistral-7B for validation
-- **Comprehensive Financial Tools**:
-  - Financial metrics and ratios (PE, P/B, ROE, debt ratios, etc.)
-  - Market news with sentiment analysis
-  - Economic indicators from FRED API
-  - Federal Reserve policy tracking
-  - Technical indicators (RSI, MACD, Bollinger Bands, ATR)
-- **Date-Aware Analysis**: Extracts reference dates from queries for historical analysis
-- **Intelligent Fallbacks**: Multiple data sources with automatic fallback mechanisms
-- **Robust Error Handling**: Proper exception handling and retry logic
+### Stock Analysis
+- **Comprehensive Fundamental Metrics**
+  - Valuation ratios (P/E, P/B, P/S, EV/EBITDA, EV/Revenue)
+  - Profitability metrics (Profit Margin, ROE, ROA, Gross Margin, Operating Margin)
+  - Growth indicators (Earnings Growth, Revenue Growth)
+  - Financial health (Debt-to-Equity, Current Ratio, Quick Ratio, Cash per Share)
+  - Market metrics (Beta, Dividend Yield, 52-week range, price performance)
 
-## Prerequisites
+- **Technical Analysis** (with TA-Lib)
+  - Momentum Indicators: RSI, MACD, Stochastic Oscillator
+  - Trend Indicators: SMA (20/50/200), EMA (12/26)
+  - Volatility Indicators: Bollinger Bands, ATR
+  - Volume Analysis: Volume ratios and trends
+  - Support/Resistance Levels: 20-day and 50-day ranges
 
-- Python 3.8+
-- TA-Lib library (requires system-level installation)
+- **Market Intelligence**
+  - Multi-source news aggregation (yahooquery, Finnhub, Polygon)
+  - Sentiment analysis with positive/negative/neutral classification
+  - Interactive TradingView candlestick charts with volume overlay
 
-### Installing TA-Lib
+- **Smart Ticker Search**
+  - Auto-complete with company name matching
+  - Fuzzy search supporting both ticker symbols and company names
+  - SEC company database integration
+
+### Macro Analysis
+- **Economic Indicators** (via FRED API)
+  - General: Federal Funds Rate, Treasury Yields, VIX, Unemployment, CPI
+  - Inflation: CPI, Core CPI, PCE, Core PCE, Inflation Expectations
+  - Employment: Unemployment Rate, Labor Force Participation, Nonfarm Payrolls, Job Openings
+  - Interest Rates: Fed Funds, 2Y/10Y/30Y Treasuries, Yield Curve Analysis
+  - GDP: Real GDP, GDP Growth Rate, Personal Consumption, Business Investment
+
+- **Federal Reserve Policy Tracking**
+  - Federal Funds Rate with upper/lower targets
+  - Fed balance sheet (Total Assets, Excess Reserves)
+  - Policy trend analysis with visual indicators
+
+- **Bond Market Analysis**
+  - Complete Treasury yield curve (3M to 30Y)
+  - Yield curve inversion detection
+  - Spread analysis (10Y-2Y) with recession signals
+
+### User Experience
+- **Modern UI/UX**
+  - Dark mode (default) and light mode themes
+  - Gradient-enhanced design with smooth animations
+  - Responsive layout for desktop and mobile
+  - Real-time loading states and error handling
+
+- **Interactive Features**
+  - Auto-complete ticker search
+  - Multiple chart timeframes (1M, 3M, 6M, 1Y, 2Y, 5Y)
+  - Expandable analysis sections
+  - Copy-to-clipboard functionality
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Frontend (index.html)                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ Stock Search │  │ Macro Search │  │ Chart Viewer │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ REST API
+┌───────────────────────────┴─────────────────────────────────┐
+│                    Flask Backend (app.py)                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ Stock Agent  │  │ Macro Agent  │  │  API Routes  │      │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘      │
+│         │                  │                                 │
+│  ┌──────┴──────────────────┴──────┐                         │
+│  │      LangChain Tools            │                         │
+│  │  • get_financial_metrics()      │                         │
+│  │  • get_technical_indicators()   │                         │
+│  │  • get_market_news()            │                         │
+│  │  • get_economic_indicators()    │                         │
+│  │  • get_fed_policy_info()        │                         │
+│  │  • get_bond_yields()            │                         │
+│  └─────────────────────────────────┘                         │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────┴─────────────────────────────────┐
+│                  External Data Sources                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │  Yahoo   │ │   FRED   │ │ Finnhub  │ │ Polygon  │      │
+│  │ Finance  │ │   API    │ │   API    │ │   API    │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Technology Stack
+
+### Backend
+- **Framework**: Flask 3.0+ with CORS support
+- **AI/ML**: LangChain + Groq (Llama-4-Scout-17B)
+- **Data APIs**:
+  - yahooquery (stock data - same source as TradingView)
+  - FRED API (economic data)
+  - Finnhub API (news)
+  - Polygon API (alternative data)
+- **Analysis**: TA-Lib (technical indicators), NumPy, Pandas
+
+### Frontend
+- **Charts**: TradingView Lightweight Charts
+- **Styling**: Custom CSS with CSS variables for theming
+- **Fonts**: Outfit (UI), JetBrains Mono (code/data)
+- **JavaScript**: Vanilla ES6+ with Fetch API
+
+### Infrastructure
+- **Environment**: Python-dotenv for configuration
+- **HTTP**: Requests library with retry logic
+- **Data Format**: JSON for API communication
+
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- TA-Lib (system-level installation required)
+
+### 1. Install TA-Lib
 
 **macOS:**
 ```bash
@@ -29,203 +143,346 @@ brew install ta-lib
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install ta-lib
+sudo apt-get install ta-lib-dev
 ```
 
 **Windows:**
 Download pre-built binaries from [ta-lib.org](http://ta-lib.org/hdr_dw.html)
 
-## Installation
+### 2. Clone Repository
+```bash
+git clone https://github.com/yourusername/SmokeNMirror.git
+cd SmokeNMirror
+```
 
-1. **Clone or download this repository**
-
-2. **Install Python dependencies:**
+### 3. Install Python Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Set up environment variables:**
+### 4. Configure Environment Variables
 
-Create a `.env` file in the project root with your API keys:
+Create a `.env` file in the project root:
 
 ```env
-# LLM API Keys
-OPENAI_KEY=your_openai_api_key_here
-MISTRAL=your_mistral_api_key_here
+# AI/LLM API Keys
 groq=your_groq_api_key_here
 
-# Financial Data API Keys
+# Financial Data API Keys (at least FRED required)
 FRED_API=your_fred_api_key_here
+
+# Optional: Additional data sources
 POLYGON=your_polygon_api_key_here
 finhub=your_finnhub_api_key_here
+
+# Legacy (not actively used but can be configured)
+OPENAI_KEY=your_openai_api_key_here
+MISTRAL=your_mistral_api_key_here
 ```
 
-### Getting API Keys
+### 5. Verify Installation
 
-- **OpenAI**: https://platform.openai.com/api-keys
-- **Mistral**: https://console.mistral.ai/
-- **Groq**: https://console.groq.com/
-- **FRED (Federal Reserve)**: https://fred.stlouisfed.org/docs/api/api_key.html (Free)
-- **Polygon**: https://polygon.io/ (Free tier available)
-- **Finnhub**: https://finnhub.io/ (Free tier available)
+Test TA-Lib installation:
+```bash
+python -c "import talib; print(talib.__version__)"
+```
+
+## Getting API Keys
+
+### Required
+- **Groq** (Free): https://console.groq.com/
+  - Used for AI-powered analysis
+  - Sign up and create an API key
+
+- **FRED** (Free): https://fred.stlouisfed.org/docs/api/api_key.html
+  - Federal Reserve Economic Data
+  - Required for macro analysis
+  - Request API key (instant approval)
+
+### Optional (Enhances Features)
+- **Finnhub** (Free tier): https://finnhub.io/
+  - Alternative news source
+  - 60 calls/minute on free tier
+
+- **Polygon** (Free tier): https://polygon.io/
+  - Alternative financial data
+  - Limited calls on free tier
 
 ## Usage
 
-1. **Prepare your test data:**
+### Starting the Server
 
-Ensure you have a `test.csv` file with the following structure:
-```csv
-id,query
-1,"What is the PE ratio of AAPL?"
-2,"Predict if $TSLA will rise or fall on 2024-01-15"
-```
-
-2. **Run the analysis:**
 ```bash
-python AgenticAgentFinancialAnalysis.py
+python app.py
 ```
 
-3. **Check outputs:**
-- `submission.csv` - Predictions for all queries
-- `process_log.txt` - Detailed processing log with raw and clean answers
+The server will start at `http://localhost:5000`
+
+You should see:
+```
+🚀 Starting Agentic Financial Analysis Server...
+📊 Stock Analysis Agent: Ready
+🌍 Macro Analysis Agent: Ready
+🔗 Server running at http://localhost:5000
+```
+
+### Using the Web Interface
+
+1. **Open your browser** to `http://localhost:5000`
+
+2. **Stock Analysis**:
+   - Enter a ticker symbol (e.g., `AAPL`, `TSLA`) or company name (e.g., `Apple`, `Tesla`)
+   - Auto-complete will suggest matches
+   - Click "Analyze Stock" to get comprehensive analysis
+   - View the interactive chart with different timeframes
+   - Read AI-generated insights on valuation, technicals, and fundamentals
+
+3. **Macro Analysis**:
+   - Switch to "Macro Outlook" tab
+   - Enter a topic (e.g., `inflation`, `federal reserve policy`, `yield curve`)
+   - Click "Analyze Macro" for detailed economic analysis
+   - Review key indicators, policy outlook, and market implications
+
+4. **Customization**:
+   - Toggle dark/light mode with the theme button
+   - Expand/collapse analysis sections
+   - Change chart timeframes
+   - Copy analysis to clipboard
+
+## API Endpoints
+
+### Stock Analysis
+```http
+POST /api/analyze/stock
+Content-Type: application/json
+
+{
+  "ticker": "AAPL"
+}
+```
+
+Response:
+```json
+{
+  "ticker": "AAPL",
+  "displayName": "Apple Inc.",
+  "userInput": "apple",
+  "analysis": "📊 Fundamental Analysis for AAPL...",
+  "timestamp": "2025-11-29T10:30:00"
+}
+```
+
+### Macro Analysis
+```http
+POST /api/analyze/macro
+Content-Type: application/json
+
+{
+  "topic": "inflation outlook"
+}
+```
+
+### Chart Data
+```http
+GET /api/chart/{ticker}?period=1y
+```
+
+Periods: `1m`, `3m`, `6m`, `1y`, `2y`, `5y`
+
+### Ticker Search
+```http
+GET /api/tickers/search?q=apple
+```
+
+### Quick Endpoints
+- `GET /api/quick/metrics/{ticker}` - Financial metrics only
+- `GET /api/quick/indicators/{type}` - Economic indicators (general/inflation/employment/rates/gdp)
+- `GET /api/quick/yields` - Bond yields
 
 ## Project Structure
 
 ```
-.
-├── AgenticAgentFinancialAnalysis.py  # Main agent application
-├── requirements.txt                  # Python dependencies
-├── .env                             # API keys (not in git)
-├── .gitignore                       # Git ignore rules
-├── test.csv                         # Input queries
-├── submission.csv                   # Output predictions (generated)
-└── process_log.txt                  # Processing logs (generated)
+SmokeNMirror/
+├── app.py                      # Flask backend with LangChain agents
+├── index.html                  # Frontend web interface
+├── company_tickers.json        # SEC company ticker database
+├── requirements.txt            # Python dependencies
+├── readme.md                   # This file
+├── .env                        # Environment variables (not in git)
+└── .gitignore                  # Git ignore rules
 ```
-
-## How It Works
-
-1. **Query Processing**: Extracts reference dates from questions (e.g., "on 13/12/2017")
-2. **Agent Analysis**: LangChain agent uses appropriate tools to gather financial data
-3. **Answer Extraction**: Parses agent response to extract clean answers (A/B/C/D or Rise/Fall)
-4. **Validation** (optional): Uses validator LLM to verify answer format
-5. **Fallback Handling**: If agent fails, attempts direct LLM call, then defaults to 'A'
-
-## Available Tools
-
-### 1. `get_financial_metrics(ticker: str)`
-Fetches comprehensive financial ratios and metrics:
-- Valuation ratios (PE, P/B, P/S, EV/EBITDA)
-- Financial health (debt-to-equity, current ratio, quick ratio)
-- Profitability (profit margins, ROE, ROA)
-- Growth metrics (earnings growth, revenue growth)
-
-### 2. `get_market_news(ticker: str)`
-Multi-source news aggregation with sentiment analysis:
-- Sources: yahooquery, Finnhub, Polygon
-- Keyword-based sentiment classification
-- Date-aware filtering
-
-### 3. `get_economic_indicators(category: str)`
-FRED economic data by category:
-- `general`: Fed funds, treasuries, VIX, unemployment, CPI
-- `inflation`: CPI, Core CPI, PCE, inflation expectations
-- `employment`: Unemployment, labor force, payrolls, job openings
-- `rates`: Fed funds, treasury yields, yield curve
-- `gdp`: Real GDP, growth rate, consumption, investment
-
-### 4. `get_fed_policy_info()`
-Federal Reserve policy indicators with trends:
-- Federal funds rate and targets
-- Total assets and excess reserves
-
-### 5. `get_technical_indicators(ticker: str)`
-Technical analysis using TA-Lib:
-- 14-day RSI
-- MACD (12/26)
-- Bollinger Bands position
-- 14-day ATR
 
 ## Configuration
 
 ### LLM Settings
+The application uses Groq's Llama-4 model with conservative settings for accuracy:
 
-**Primary Agent** (in code):
 ```python
 llm = ChatGroq(
-    model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-    temperature=0.05,
-    max_tokens=2048
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
+    temperature=0.1,        # Low temperature for consistent analysis
+    max_tokens=2048,        # Sufficient for detailed analysis
+    max_retries=3           # Auto-retry on failures
 )
 ```
 
-**Validator**:
-```python
-validator_llm = ChatMistralAI(
-    model_name="mistralai/Mistral-7B-Instruct-v0.2",
-    temperature=0.0,
-    max_tokens=32
-)
+### Data Consistency
+- Technical indicators use the **same data source** as TradingView charts (Yahoo Finance, 1-year daily data)
+- All metrics include validation and interpretation flags (✅ ⚠️ ❌)
+- Retry logic with exponential backoff for API rate limits
+
+## Error Handling
+
+The application includes robust error handling:
+- **API Rate Limits**: Exponential backoff with 3 retries
+- **Missing Data**: Graceful fallbacks and informative error messages
+- **Network Issues**: Timeout handling and retry logic
+- **Invalid Tickers**: Fuzzy matching with suggestions
+- **Missing API Keys**: Clear warnings about unavailable features
+
+If TA-Lib is not installed:
 ```
+⚠️ TA-Lib not installed. Technical indicators will be limited.
+```
+The app will use fallback calculations for basic indicators.
 
-### Agent Parameters
+## Performance Considerations
 
-- **Agent Type**: `STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION`
-- **Max Iterations**: 3
-- **Error Handling**: Enabled with parsing error handling
+- **Response Times**: Initial analysis takes 5-15 seconds depending on data sources
+- **API Limits**:
+  - Yahoo Finance: ~2000 requests/hour (with backoff)
+  - FRED: 120 requests/minute
+  - Finnhub: 60 requests/minute (free tier)
+  - Polygon: Limited on free tier
+- **Optimization**: Consider implementing caching for production use
+- **Concurrent Requests**: Flask development server handles one request at a time
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **TA-Lib Import Error**
-   - Ensure TA-Lib is installed at system level (see Prerequisites)
-   - Verify with: `python -c "import talib; print(talib.__version__)"`
+**1. TA-Lib Import Error**
+```
+ImportError: No module named 'talib'
+```
+Solution: Install TA-Lib at system level (see Installation section)
 
-2. **API Rate Limits**
-   - yahooquery implements exponential backoff for 429 errors
-   - Consider adding delays between requests if hitting limits
+**2. API Rate Limits**
+```
+Error fetching metrics: 429 Too Many Requests
+```
+Solution: Wait a few minutes, the app has built-in retry logic
 
-3. **Missing API Keys**
-   - Check `.env` file exists and contains all required keys
-   - Verify keys are valid by testing individual API calls
+**3. Missing API Keys**
+```
+❌ FRED_API_KEY not set
+```
+Solution: Add required API keys to `.env` file
 
-4. **Date Parsing Issues**
-   - Reference dates support formats: DD/MM/YYYY, YYYY-MM-DD, "Dec 13 2017"
-   - Relative dates: "yesterday", "last month"
+**4. CORS Errors**
+```
+Access-Control-Allow-Origin error
+```
+Solution: Ensure Flask-CORS is installed and the server is running
 
-## Performance Notes
+**5. No Data for Ticker**
+```
+❌ No price data available for XYZ
+```
+Solution: Verify ticker symbol is correct and traded on major exchanges
 
-- Uses free-tier APIs for cost efficiency
-- Implements retry logic with exponential backoff
-- Caches are not implemented (consider adding for production)
-- Processing time depends on API response times and number of queries
+### Debug Mode
 
-## Recent Improvements
+To see detailed logs, the app runs in debug mode by default:
+```python
+app.run(debug=True, port=5000)
+```
 
-All critical bugs and issues have been fixed:
+## Deployment Considerations
 
-✅ **Fixed critical syntax error** with global CURRENT_REF_DATE statement
-✅ **Fixed validator function** to properly use query and candidate parameters
-✅ **Replaced bare exception handlers** with specific exception types and error logging
-✅ **Fixed resource leak** by using context manager for log file
-✅ **Added requirements.txt** with all dependencies
-✅ **Created .gitignore** to protect sensitive files
+For production deployment:
 
-## License
+1. **Disable Debug Mode**:
+   ```python
+   app.run(debug=False, port=5000)
+   ```
 
-This project is for educational and research purposes.
+2. **Use Production Server**:
+   ```bash
+   pip install gunicorn
+   gunicorn -w 4 -b 0.0.0.0:5000 app:app
+   ```
+
+3. **Implement Caching**:
+   - Add Redis or in-memory caching for API responses
+   - Cache duration: 1-5 minutes for stock data, 1 hour for economic data
+
+4. **Rate Limiting**:
+   - Use Flask-Limiter to prevent abuse
+   - Implement request queuing for API calls
+
+5. **Environment Variables**:
+   - Use proper secret management (AWS Secrets Manager, HashiCorp Vault)
+   - Never commit `.env` to version control
+
+6. **Monitoring**:
+   - Add logging with rotating file handlers
+   - Implement error tracking (Sentry, Rollbar)
+   - Monitor API usage and quotas
+
+## Limitations
+
+- **Data Latency**: Market data is delayed 15-20 minutes (real-time requires paid APIs)
+- **Historical Analysis**: Limited to available historical data from free APIs
+- **Rate Limits**: Free API tiers have request limitations
+- **AI Analysis**: Powered by LLM - should not be used as sole basis for investment decisions
+- **No Financial Advice**: This tool is for informational and educational purposes only
+
+## Future Enhancements
+
+Potential improvements:
+- [ ] User authentication and portfolio tracking
+- [ ] Watchlist functionality with alerts
+- [ ] Backtesting capabilities
+- [ ] Options analysis (Greeks, IV, strategies)
+- [ ] Cryptocurrency support
+- [ ] Real-time WebSocket data feeds
+- [ ] Export analysis to PDF/Excel
+- [ ] Custom indicator builder
+- [ ] Social sentiment analysis (Twitter, Reddit)
+- [ ] Earnings calendar integration
+- [ ] Comparison tools (multi-ticker analysis)
 
 ## Contributing
 
-Improvements welcome! Consider:
-- Adding more financial data sources
-- Implementing caching for API responses
-- Modularizing code into separate files
-- Adding unit tests
-- Implementing async API calls for better performance
+Contributions are welcome! Areas for improvement:
+- Additional data sources and APIs
+- Enhanced technical indicators
+- UI/UX improvements
+- Performance optimizations
+- Testing and documentation
+- Mobile app development
+
+## License
+
+This project is for educational and research purposes. Not intended as financial advice.
+
+## Disclaimer
+
+**IMPORTANT**: This application is provided for informational and educational purposes only. It does not constitute financial advice, investment recommendations, or an offer to buy or sell securities. Always consult with a qualified financial advisor before making investment decisions. Past performance does not guarantee future results. The creators and contributors are not responsible for any financial losses incurred from using this application.
 
 ## Acknowledgments
 
-- Built with LangChain framework
-- Financial data from yahooquery, FRED, Finnhub, and Polygon
-- Technical analysis powered by TA-Lib
+- **LangChain** - Agent framework and tool orchestration
+- **Groq** - High-performance LLM inference
+- **Yahoo Finance** - Stock price and fundamental data via yahooquery
+- **Federal Reserve (FRED)** - Economic indicators and data
+- **TradingView** - Professional charting library
+- **TA-Lib** - Technical analysis indicators
+- **Finnhub & Polygon** - Alternative financial data sources
+
+---
+
+**Built with** ⚡ by the SmokeNMirror team
+
+For issues, questions, or suggestions, please open an issue on GitHub.
