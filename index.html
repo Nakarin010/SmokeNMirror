@@ -1143,6 +1143,7 @@
         const THEME_STORAGE_KEY = 'agentic-finance-theme';
         let suggestionTimer;
         let suggestionController;
+        let ignoreNextInput = false; // Flag to prevent input event after selection
 
         function applyTheme(theme) {
             const isLight = theme === 'light';
@@ -1182,9 +1183,10 @@
         // Quick Select Chips - Stock
         document.querySelectorAll('.quick-chip[data-ticker]').forEach(chip => {
             chip.addEventListener('click', () => {
+                ignoreNextInput = true;
                 stockTickerInput.value = chip.dataset.ticker;
-                stockTickerInput.focus();
                 clearTickerSuggestions();
+                setTimeout(() => stockTickerInput.focus(), 50);
             });
         });
 
@@ -1300,6 +1302,12 @@
 
         if (stockTickerInput && tickerSuggestions) {
             stockTickerInput.addEventListener('input', () => {
+                // Skip if we just selected a suggestion
+                if (ignoreNextInput) {
+                    ignoreNextInput = false;
+                    return;
+                }
+
                 const value = stockTickerInput.value.trim();
                 if (value.length < 2) {
                     clearTickerSuggestions();
@@ -1310,6 +1318,9 @@
             });
 
             stockTickerInput.addEventListener('focus', () => {
+                // Don't re-fetch if we just selected a suggestion
+                if (ignoreNextInput) return;
+
                 const value = stockTickerInput.value.trim();
                 if (value.length >= 2 && !tickerSuggestions.classList.contains('visible')) {
                     fetchTickerSuggestions(value);
@@ -1325,9 +1336,17 @@
             tickerSuggestions.addEventListener('click', (event) => {
                 const target = event.target.closest('.suggestion-item');
                 if (!target) return;
+
+                // Set flag to ignore the next input event (triggered by value change)
+                ignoreNextInput = true;
+
                 stockTickerInput.value = target.dataset.ticker;
                 clearTickerSuggestions();
-                stockTickerInput.focus();
+
+                // Small delay before focus to ensure suggestions are fully cleared
+                setTimeout(() => {
+                    stockTickerInput.focus();
+                }, 50);
             });
 
             document.addEventListener('click', (event) => {
@@ -1611,10 +1630,18 @@
 
             if (!chartSection) return;
 
-            // Show loading state
-            chartContainer.innerHTML = '<div class="chart-loading">📊 Loading chart data...</div>';
+            // Initialize chart on first load
+            const isFirstLoad = !mainChart || !candleSeries;
+            if (isFirstLoad) {
+                chartContainer.innerHTML = '<div class="chart-loading">📊 Loading chart data...</div>';
+            }
 
             try {
+                // Show loading on price display for quick feedback
+                if (priceEl && !isFirstLoad) {
+                    priceEl.style.opacity = '0.5';
+                }
+
                 const response = await fetch(`${API_BASE}/api/chart/${ticker}?period=${period}`);
                 if (!response.ok) {
                     throw new Error('Failed to load chart data');
@@ -1622,13 +1649,13 @@
 
                 const data = await response.json();
 
-                // Initialize chart if not already done
-                if (!mainChart || !candleSeries) {
+                // Initialize chart only on first load
+                if (isFirstLoad) {
                     chartContainer.innerHTML = '';
                     initChart();
                 }
 
-                // Set chart data
+                // Update chart data efficiently
                 if (candleSeries && data.candles && data.candles.length > 0) {
                     candleSeries.setData(data.candles);
                 }
@@ -1637,7 +1664,7 @@
                     volumeSeries.setData(data.volume);
                 }
 
-                // Fit content
+                // Fit content smoothly
                 if (mainChart) {
                     mainChart.timeScale().fitContent();
                 }
@@ -1648,6 +1675,7 @@
                 // Update price display
                 if (priceEl) {
                     priceEl.textContent = `$${data.currentPrice.toFixed(2)}`;
+                    priceEl.style.opacity = '1';
                 }
 
                 if (changeEl) {
@@ -1661,21 +1689,38 @@
 
             } catch (error) {
                 console.error('Chart loading error:', error);
-                chartContainer.innerHTML = '<div class="chart-loading">⚠️ Could not load chart data</div>';
+                if (isFirstLoad) {
+                    chartContainer.innerHTML = '<div class="chart-loading">⚠️ Could not load chart data</div>';
+                } else {
+                    showToast('Failed to update chart', 'error');
+                }
+                if (priceEl) {
+                    priceEl.style.opacity = '1';
+                }
             }
         }
 
         // Period selector buttons
         document.querySelectorAll('.period-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 if (!currentChartTicker) return;
-                
+
+                // Prevent double-clicks
+                if (btn.disabled) return;
+
                 // Update active state
-                document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.period-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.disabled = false;
+                });
                 btn.classList.add('active');
-                
+                btn.disabled = true;
+
                 // Reload chart with new period
-                loadChartData(currentChartTicker, btn.dataset.period);
+                await loadChartData(currentChartTicker, btn.dataset.period);
+
+                // Re-enable button
+                btn.disabled = false;
             });
         });
 
