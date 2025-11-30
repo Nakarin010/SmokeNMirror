@@ -125,7 +125,7 @@ body.light-mode .grid-pattern {
 /* Header */
 header {
     padding: 2rem 4rem;
-    background: rgba(10, 10, 15, 0.8);
+    background: var(--bg-card);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border-color);
     position: sticky;
