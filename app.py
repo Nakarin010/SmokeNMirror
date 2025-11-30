@@ -1132,6 +1132,11 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
+@app.route('/styles.css')
+def styles():
+    return send_from_directory('.', 'styles.css')
+
+
 @app.route('/api/analyze/stock', methods=['POST'])
 def analyze_stock():
     """Analyze a stock ticker."""
