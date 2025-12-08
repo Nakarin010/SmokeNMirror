@@ -138,6 +138,113 @@ def search_company_tickers(term: str, limit: int = 8) -> list[dict]:
     return results
 
 
+def build_correlation_matrix(
+    raw_inputs: list[str] | str,
+    period: str = "1y",
+) -> dict:
+    """
+    Build a price return correlation matrix for a list of tickers.
+    Uses yahooquery for pricing data and returns JSON-ready structure.
+    """
+    if not raw_inputs:
+        raise ValueError("No tickers provided")
+
+    # Normalize input to a clean list of tickers
+    if isinstance(raw_inputs, str):
+        candidates = [
+            item.strip()
+            for item in raw_inputs.replace(";", ",").split(",")
+            if item.strip()
+        ]
+    else:
+        candidates = [str(item).strip() for item in raw_inputs if str(item).strip()]
+
+    if len(candidates) < 2:
+        raise ValueError("Please provide at least two tickers")
+
+    resolved: list[str] = []
+    invalid: list[str] = []
+
+    for item in candidates:
+        ticker = resolve_ticker_symbol(item)
+        if ticker:
+            resolved.append(ticker)
+        else:
+            # If resolver fails, fall back to the cleaned uppercase symbol
+            fallback = item.upper()
+            resolved.append(fallback)
+            invalid.append(item)
+
+    # De-duplicate while preserving order
+    seen = set()
+    unique_tickers: list[str] = []
+    for t in resolved:
+        if t not in seen:
+            unique_tickers.append(t)
+            seen.add(t)
+
+    if len(unique_tickers) < 2:
+        raise ValueError("Need at least two distinct tickers after cleaning")
+    if len(unique_tickers) > 25:
+        raise ValueError("Please limit requests to 25 tickers")
+
+    # Fetch historical prices
+    ticker_obj = yq.Ticker(" ".join(unique_tickers))
+    hist = ticker_obj.history(period=period, interval="1d")
+    if hist is None or getattr(hist, "empty", True):
+        raise ValueError("No price data returned for the requested tickers/period")
+
+    # Reset index to columns
+    hist = hist.reset_index()
+
+    symbol_col = "symbol" if "symbol" in hist.columns else None
+    date_col = "date" if "date" in hist.columns else None
+    value_col = "adjclose" if "adjclose" in hist.columns else (
+        "close" if "close" in hist.columns else None
+    )
+
+    if not symbol_col or not date_col or not value_col:
+        raise ValueError("Unexpected price data format from provider")
+
+    # Normalize date column to consistent timezone-naive pandas datetime
+    hist[date_col] = (
+        pd.to_datetime(hist[date_col], errors="coerce", utc=True)
+        .dt.tz_convert(None)
+    )
+    hist = hist.dropna(subset=[date_col])
+
+    price_table = (
+        hist[[symbol_col, date_col, value_col]]
+        .pivot_table(index=date_col, columns=symbol_col, values=value_col)
+        .sort_index()
+    )
+
+    # Forward-fill to handle occasional gaps, drop all-NaN columns
+    price_table = price_table.ffill().dropna(axis=1, how="all")
+    if price_table.shape[1] < 2:
+        raise ValueError("Insufficient overlapping data to compute correlation")
+
+    returns = price_table.pct_change().dropna(how="all")
+    returns = returns.dropna(axis=1, how="all")
+
+    if returns.shape[1] < 2:
+        raise ValueError("Not enough return data to compute correlation matrix")
+
+    corr = returns.corr().replace([np.inf, -np.inf], np.nan).round(4)
+    corr = corr.fillna(0)
+
+    last_date = price_table.index.max()
+    last_date_str = last_date.strftime("%Y-%m-%d") if hasattr(last_date, "strftime") else str(last_date)
+
+    return {
+        "tickers": corr.columns.tolist(),
+        "matrix": corr.to_numpy().tolist(),
+        "period": period,
+        "asOf": last_date_str,
+        "warnings": invalid if invalid else None,
+    }
+
+
 # Initialize Flask app
 app = Flask(__name__, static_folder='static')
 CORS(app)
@@ -1135,6 +1242,22 @@ def index():
 @app.route('/styles.css')
 def styles():
     return send_from_directory('.', 'styles.css')
+
+
+@app.route('/api/correlation', methods=['POST'])
+def correlation_matrix():
+    """Compute correlation matrix for user-provided tickers."""
+    try:
+        data = request.get_json(force=True) or {}
+        tickers_input = data.get('tickers') or data.get('symbols') or []
+        period = data.get('period', '1y')
+
+        result = build_correlation_matrix(tickers_input, period)
+        return jsonify(result)
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/analyze/stock', methods=['POST'])

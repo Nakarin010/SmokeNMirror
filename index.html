@@ -207,6 +207,59 @@
                 <div class="stat-value">--</div>
             </div>
         </div>
+
+        <!-- Correlation Matrix Section -->
+        <section class="correlation-section">
+            <div class="section-header">
+                <div>
+                    <h3>Correlation Matrix</h3>
+                    <p>Visualize how multiple tickers move together. Enter 2-25 symbols separated by commas or spaces.</p>
+                </div>
+                <div class="correlation-actions">
+                    <label for="correlation-period" class="sr-only">Period</label>
+                    <select id="correlation-period" class="correlation-period">
+                        <option value="6mo">6M</option>
+                        <option value="1y" selected>1Y</option>
+                        <option value="2y">2Y</option>
+                        <option value="5y">5Y</option>
+                    </select>
+                    <button class="analyze-btn" id="correlation-btn" type="button">
+                        <span>🎯</span>
+                        Build Matrix
+                    </button>
+                </div>
+            </div>
+
+            <div class="input-card correlation-card">
+                <div class="input-group">
+                    <label for="correlation-tickers">Tickers (comma or space separated)</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="correlation-tickers" placeholder="AAPL, MSFT, NVDA, AMZN, GOOGL, TSM, AVGO">
+                    </div>
+                    <small class="helper-text">Example: AAPL MSFT NVDA TSLA GOOGL | Minimum 2, maximum 25.</small>
+                </div>
+                <div class="correlation-hints">
+                    <span class="hint-chip" data-tickers="AAPL,MSFT,NVDA,AMZN,GOOGL">Mega Tech</span>
+                    <span class="hint-chip" data-tickers="XOM,CVX,SHEL,BP">Energy Majors</span>
+                    <span class="hint-chip" data-tickers="JPM,BAC,C,GS,MS">US Banks</span>
+                    <span class="hint-chip" data-tickers="TSM,ASML,AVGO,AMD">Semis</span>
+                </div>
+            </div>
+
+            <div id="correlation-results" class="results-card correlation-results">
+                <div class="results-header">
+                    <div class="results-title">
+                        <h4>Correlation Heatmap</h4>
+                        <span class="results-badge">Correlation</span>
+                    </div>
+                    <span class="results-timestamp" id="correlation-asof"></span>
+                </div>
+                <div id="correlation-grid" class="correlation-grid empty">
+                    <p>Enter tickers and click "Build Matrix" to see correlations.</p>
+                </div>
+                <div id="correlation-warning" class="correlation-warning" style="display: none;"></div>
+            </div>
+        </section>
     </main>
 
     <!-- Footer -->
@@ -240,6 +293,13 @@
         const themeToggleBtn = document.getElementById('theme-toggle');
         const themeIcon = document.getElementById('theme-toggle-icon');
         const themeLabel = document.getElementById('theme-toggle-label');
+        const correlationInput = document.getElementById('correlation-tickers');
+        const correlationBtn = document.getElementById('correlation-btn');
+        const correlationPeriod = document.getElementById('correlation-period');
+        const correlationResults = document.getElementById('correlation-results');
+        const correlationGrid = document.getElementById('correlation-grid');
+        const correlationAsOf = document.getElementById('correlation-asof');
+        const correlationWarning = document.getElementById('correlation-warning');
 
         const THEME_STORAGE_KEY = 'agentic-finance-theme';
         let suggestionTimer;
@@ -353,6 +413,64 @@
                 .replace(/📊|📈|📉|🏛️|📰|⚠️|✅|🟢|🔴|⚪/g, match => `<span style="font-size: 1.2em;">${match}</span>`)
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/__(.*?)__/g, '<em>$1</em>');
+        }
+
+        // Correlation helpers
+        function parseTickers(input = '') {
+            return input
+                .split(/[,\s]+/)
+                .map(t => t.trim().toUpperCase())
+                .filter(Boolean);
+        }
+
+        function setCorrelationLoading(loading) {
+            if (!correlationBtn) return;
+            if (loading) {
+                correlationBtn.disabled = true;
+                correlationBtn.innerHTML = '<div class="btn-spinner"></div> Building...';
+            } else {
+                correlationBtn.disabled = false;
+                correlationBtn.innerHTML = '<span>🎯</span> Build Matrix';
+            }
+        }
+
+        function correlationColor(val) {
+            const clamped = Math.max(-1, Math.min(1, Number(val)));
+            const hue = ((clamped + 1) / 2) * 120; // -1 red, 0 yellow, 1 green
+            return `hsl(${hue}, 70%, 45%)`;
+        }
+
+        function renderCorrelationGrid(labels = [], matrix = []) {
+            if (!correlationGrid) return;
+            if (!labels.length || !matrix.length) {
+                correlationGrid.classList.add('empty');
+                correlationGrid.innerHTML = '<p>Enter tickers and click "Build Matrix" to see correlations.</p>';
+                return;
+            }
+
+            const header = `<tr><th></th>${labels.map(l => `<th>${l}</th>`).join('')}</tr>`;
+            const rows = matrix
+                .map((row, i) => {
+                    const cells = row.map((val, j) => {
+                        const isDiag = i === j;
+                        const num = Number(val);
+                        const isNum = Number.isFinite(num);
+                        const display = isDiag ? '&nbsp;' : (isNum ? num.toFixed(2) : '—');
+                        const bg = isDiag ? 'var(--bg-primary)' : (isNum ? correlationColor(num) : 'var(--bg-tertiary)');
+                        const cls = isDiag ? 'diag' : '';
+                        return `<td class="${cls}" style="background:${bg};" title="${labels[i]} vs ${labels[j]}">${display}</td>`;
+                    });
+                    return `<tr><th>${labels[i]}</th>${cells.join('')}</tr>`;
+                })
+                .join('');
+
+            correlationGrid.classList.remove('empty');
+            correlationGrid.innerHTML = `
+                <table class="correlation-table">
+                    <thead>${header}</thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
         }
 
         // Ticker Suggestions
@@ -543,6 +661,86 @@
                 setButtonLoading(analyzeMacroBtn, false);
             }
         });
+
+        // Correlation Matrix
+        async function buildCorrelationMatrix() {
+            if (!correlationInput) return;
+            const tickers = parseTickers(correlationInput.value);
+            const period = correlationPeriod ? correlationPeriod.value : '1y';
+
+            if (tickers.length < 2) {
+                showToast('Please enter at least two tickers', 'warning');
+                return;
+            }
+
+            setCorrelationLoading(true);
+            if (correlationResults) correlationResults.classList.remove('visible');
+            if (correlationWarning) correlationWarning.style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/correlation`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tickers, period })
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Failed to compute correlation');
+                }
+
+                renderCorrelationGrid(data.tickers, data.matrix);
+
+                if (correlationAsOf) {
+                    const periodLabel = data.period ? ` • ${data.period.toUpperCase()}` : '';
+                    correlationAsOf.textContent = data.asOf ? `As of ${data.asOf}${periodLabel}` : '';
+                }
+
+                if (correlationWarning) {
+                    if (data.warnings && data.warnings.length) {
+                        correlationWarning.style.display = 'block';
+                        correlationWarning.textContent = `Unrecognized entries (used as-is): ${data.warnings.join(', ')}`;
+                    } else {
+                        correlationWarning.style.display = 'none';
+                    }
+                }
+
+                if (correlationResults) correlationResults.classList.add('visible');
+                showToast('Correlation matrix updated', 'success');
+            } catch (error) {
+                console.error('Correlation error:', error);
+                showToast(error.message || 'Unable to build correlation matrix', 'error');
+            } finally {
+                setCorrelationLoading(false);
+            }
+        }
+
+        if (correlationBtn) {
+            correlationBtn.addEventListener('click', buildCorrelationMatrix);
+        }
+
+        if (correlationInput) {
+            correlationInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    buildCorrelationMatrix();
+                }
+            });
+        }
+
+        if (correlationInput) {
+            document.querySelectorAll('.hint-chip[data-tickers]').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    correlationInput.value = chip.dataset.tickers.replace(/,/g, ', ');
+                    correlationInput.focus();
+                });
+            });
+        }
+
+        // Ensure correlation results are hidden initially
+        if (correlationResults) {
+            correlationResults.classList.remove('visible');
+        }
 
         // Load Quick Stats on Page Load
         async function loadQuickStats() {
