@@ -29,6 +29,11 @@ from flask_cors import CORS
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
+# Web Search & Scraping imports
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+from datetime import timedelta
+
 # Load environment variables (handle cases where .env is not accessible)
 try:
     load_dotenv()
@@ -41,6 +46,10 @@ polygon_key = os.getenv("POLYGON")
 finhub_key = os.getenv("finhub")
 mistral_key = os.getenv("MISTRAL")
 groqK = os.getenv("groq")
+newsapi = os.getenv("NEWS")
+serpapi = os.getenv("SERP")
+gnews = os.getenv("GNEWS")
+brave = os.getenv("BRAVE")
 
 # Global reference date
 CURRENT_REF_DATE: _date | None = None
@@ -507,6 +516,51 @@ def get_financial_metrics(ticker: str) -> str:
                 volatility_30d = (hist_close.rolling(30).std().iloc[-1] / hist_close.iloc[-1]) * 100
                 result += f"  • 30-Day Volatility: {volatility_30d:.2f}%\n"
         
+        # === DERIVS (Derivatives - Options Market Data) ===
+        try:
+            options_data = stock.option_chain
+            if isinstance(options_data, pd.DataFrame) and not options_data.empty:
+                # yahooquery returns optionType as an index level, so slice via xs
+                try:
+                    calls = options_data.xs("calls", level="optionType")
+                except Exception:
+                    calls = pd.DataFrame()
+                try:
+                    puts = options_data.xs("puts", level="optionType")
+                except Exception:
+                    puts = pd.DataFrame()
+                
+                if not calls.empty and not puts.empty:
+                    total_put_oi = puts['openInterest'].sum() if 'openInterest' in puts.columns else 0
+                    total_call_oi = calls['openInterest'].sum() if 'openInterest' in calls.columns else 0
+                    
+                    if total_call_oi > 0:
+                        result += "\n🔹 Derivs (Options):\n"
+                        
+                        # Put/Call Open Interest Ratio
+                        pc_ratio = total_put_oi / total_call_oi
+                        result += f"  • P/C Ratio (OI): {pc_ratio:.2f}"
+                        if pc_ratio > 1.0:
+                            result += " ⚠️ Bearish"
+                        elif pc_ratio < 0.7:
+                            result += " 📈 Bullish"
+                        else:
+                            result += " 📊 Neutral"
+                        result += "\n"
+                        
+                        # Put/Call Volume Ratio
+                        total_put_vol = puts['volume'].sum() if 'volume' in puts.columns else 0
+                        total_call_vol = calls['volume'].sum() if 'volume' in calls.columns else 0
+                        if total_call_vol > 0:
+                            pc_vol_ratio = total_put_vol / total_call_vol
+                            result += f"  • P/C Ratio (Vol): {pc_vol_ratio:.2f}\n"
+                        
+                        # Total Open Interest
+                        result += f"  • Total Call OI: {int(total_call_oi):,}\n"
+                        result += f"  • Total Put OI: {int(total_put_oi):,}\n"
+        except Exception:
+            pass
+        
         # === OVERALL ASSESSMENT ===
         result += "\n💡 Fundamental Summary: "
         strong_points = []
@@ -614,12 +668,112 @@ def get_market_news(ticker: str) -> str:
 
 
 @tool
+def search_brave_sentiment(query: str) -> str:
+    """
+    Search for recent news and sentiment using Brave Search API.
+    Useful for finding recent market sentiment, breaking news, and analyst opinions.
+    """
+    if not brave:
+        return "❌ Brave API key not configured"
+    
+    try:
+        # Clean up query - handle ticker symbols
+        search_query = query.strip().lstrip('$').upper()
+        
+        # Build search URL for Brave Web Search API
+        url = "https://api.search.brave.com/res/v1/web/search"
+        headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": brave
+        }
+        params = {
+            "q": f"{search_query} stock news sentiment analysis",
+            "count": 8,  # Get more results for better sentiment analysis
+            "freshness": "pw",  # Past week for recent news
+            "text_decorations": False,
+            "search_lang": "en"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"Brave Search API error: {response.status_code}")
+            return f"❌ Brave Search returned error {response.status_code}"
+        
+        data = response.json()
+        web_results = data.get("web", {}).get("results", [])
+        
+        if not web_results:
+            return f"No recent news found for {search_query} via Brave Search"
+        
+        # Sentiment analysis keywords
+        positive_words = ['bullish', 'growth', 'beat', 'surge', 'rally', 'gain', 'upgrade', 
+                         'strong', 'profit', 'outperform', 'buy', 'positive', 'record', 'success']
+        negative_words = ['bearish', 'decline', 'miss', 'drop', 'crash', 'loss', 'downgrade',
+                         'weak', 'concern', 'underperform', 'sell', 'negative', 'warning', 'risk']
+        
+        formatted_results = []
+        overall_pos = 0
+        overall_neg = 0
+        
+        for result in web_results[:5]:  # Top 5 for display
+            title = result.get("title", "")
+            description = result.get("description", "")
+            url = result.get("url", "")
+            
+            # Combine text for sentiment analysis
+            text = f"{title} {description}".lower()
+            
+            pos_count = sum(1 for w in positive_words if w in text)
+            neg_count = sum(1 for w in negative_words if w in text)
+            overall_pos += pos_count
+            overall_neg += neg_count
+            
+            if pos_count > neg_count:
+                sentiment = "🟢 Positive"
+            elif neg_count > pos_count:
+                sentiment = "🔴 Negative"
+            else:
+                sentiment = "⚪ Neutral"
+            
+            # Truncate description if too long
+            short_desc = description[:150] + "..." if len(description) > 150 else description
+            formatted_results.append(f"• {title} [{sentiment}]\n  {short_desc}")
+        
+        # Overall sentiment summary
+        if overall_pos > overall_neg * 1.5:
+            overall_sentiment = "📈 **Overall Sentiment: Bullish**"
+        elif overall_neg > overall_pos * 1.5:
+            overall_sentiment = "📉 **Overall Sentiment: Bearish**"
+        else:
+            overall_sentiment = "📊 **Overall Sentiment: Mixed/Neutral**"
+        
+        result = f"🔍 Brave Search Sentiment for {search_query}:\n\n"
+        result += f"{overall_sentiment}\n"
+        result += f"Positive signals: {overall_pos} | Negative signals: {overall_neg}\n\n"
+        result += "\n".join(formatted_results)
+        
+        return result
+        
+    except requests.exceptions.Timeout:
+        return f"⚠️ Brave Search timed out for {query}"
+    except Exception as e:
+        print(f"Brave Search error: {e}")
+        return f"❌ Error searching Brave: {str(e)}"
+
+
+@tool
 def get_economic_indicators(indicator_type: str) -> str:
     """Fetches key economic indicators from FRED API. Options: 'general', 'inflation', 'employment', 'rates', 'gdp'"""
+    from datetime import datetime, timedelta
     
     if not fred_api_key:
         return "❌ FRED_API_KEY not set"
     fred = Fred(api_key=fred_api_key)
+    
+    # Only fetch data from the last 2 years for efficiency
+    start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
 
     indicators_map = {
         "general": {
@@ -665,8 +819,8 @@ def get_economic_indicators(indicator_type: str) -> str:
     for name, sid in sel.items():
         try:
             if sid is None:
-                y10 = fred.get_series('GS10')
-                y2 = fred.get_series('GS2')
+                y10 = fred.get_series('GS10', observation_start=start_date)
+                y2 = fred.get_series('GS2', observation_start=start_date)
                 if y10.empty or y2.empty:
                     lines.append(f"• {name}: no data")
                 else:
@@ -675,7 +829,7 @@ def get_economic_indicators(indicator_type: str) -> str:
                     lines.append(f"• {name}: {val:.2f}% (as of {date})")
                 continue
 
-            data = fred.get_series(sid)
+            data = fred.get_series(sid, observation_start=start_date)
             if data.empty:
                 lines.append(f"• {name}: no data")
                 continue
@@ -1014,9 +1168,14 @@ def get_technical_indicators(ticker: str) -> str:
 @tool
 def get_bond_yields() -> str:
     """Fetches current US Treasury bond yields and yield curve analysis."""
+    from datetime import datetime, timedelta
+    
     if not fred_api_key:
         return "❌ FRED_API_KEY not set"
     fred = Fred(api_key=fred_api_key)
+    
+    # Only fetch recent data (last 1 year)
+    start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
     
     yields = {
         '3-Month Treasury': 'GS3M',
@@ -1033,7 +1192,7 @@ def get_bond_yields() -> str:
     
     for name, sid in yields.items():
         try:
-            data = fred.get_series(sid)
+            data = fred.get_series(sid, observation_start=start_date)
             if not data.empty:
                 latest = data.iloc[-1]
                 date = data.index[-1].strftime("%Y-%m-%d")
@@ -1057,6 +1216,138 @@ def get_bond_yields() -> str:
     return "\n".join(out)
 
 
+# ========== PRIORITY 3: WEB SEARCH TOOLS ==========
+
+@tool
+def search_recent_macro_news(query: str) -> str:
+    """
+    Search for recent macroeconomic news and events from the last 48 hours.
+    Use this when FRED/Fed data might be outdated or for breaking news.
+    
+    Args:
+        query: Search query (e.g., "Federal Reserve interest rates", "inflation CPI")
+    
+    Returns:
+        Formatted news results with titles, snippets, and URLs
+    """
+    try:
+        # Search financial news sources
+        search_query = f"{query} site:bloomberg.com OR site:reuters.com OR site:wsj.com"
+        
+        with DDGS() as ddgs:
+            results = list(ddgs.text(search_query, max_results=5))
+        
+        if not results:
+            return f"No recent news found for '{query}'"
+        
+        formatted = [f"📰 Recent News for '{query}':"]
+        for r in results:
+            title = r.get('title', 'No title')
+            body = r.get('body', 'No description')[:200]
+            link = r.get('href', '')
+            formatted.append(f"\n• {title}\n  {body}...\n  🔗 {link}")
+        
+        return "\n".join(formatted)
+        
+    except Exception as e:
+        return f"Error fetching news: {str(e)}"
+
+
+@tool
+def get_fed_speeches() -> str:
+    """
+    Get latest Federal Reserve speeches and statements from the last 7 days.
+    Use this for the most recent Fed policy communications.
+    
+    Returns:
+        Formatted list of recent Fed speeches with dates and titles
+    """
+    try:
+        url = "https://www.federalreserve.gov/newsevents/speeches.htm"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        speeches = ["🎤 Recent Federal Reserve Speeches:"]
+        
+        # Parse the Fed's speeches page - look for event list items
+        items = soup.select('.row.eventlist')[:5]  # Last 5 speeches
+        
+        if not items:
+            # Fallback: try alternative selectors
+            items = soup.select('.news__item')[:5]
+        
+        for item in items:
+            try:
+                date_elem = item.select_one('.news__date, .eventlist__date')
+                title_elem = item.select_one('.news__headline a, .eventlist__title a')
+                
+                if date_elem and title_elem:
+                    date = date_elem.get_text(strip=True)
+                    title = title_elem.get_text(strip=True)
+                    link = title_elem.get('href', '')
+                    if link and not link.startswith('http'):
+                        link = f"https://www.federalreserve.gov{link}"
+                    
+                    speeches.append(f"\n• {date}: {title}\n  🔗 {link}")
+            except Exception:
+                continue
+        
+        if len(speeches) == 1:
+            return "No recent Fed speeches found. Try using search_recent_macro_news for Fed news."
+        
+        return "\n".join(speeches)
+        
+    except Exception as e:
+        return f"Error fetching Fed speeches: {str(e)}. Try using search_recent_macro_news instead."
+
+
+@tool
+def get_latest_fomc_statement() -> str:
+    """
+    Get the most recent FOMC meeting statement.
+    Use this for official Federal Reserve policy decisions.
+    
+    Returns:
+        Latest FOMC statement date and key policy summary
+    """
+    try:
+        url = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        output = ["📋 FOMC Information:"]
+        
+        # Find FOMC calendar panels
+        panels = soup.select('.panel.panel-default, .fomc-meeting')[:3]
+        
+        for panel in panels:
+            try:
+                date_elem = panel.select_one('.panel-heading, .fomc-meeting__date')
+                statement_link = panel.select_one('a[href*="statement"]')
+                
+                if date_elem:
+                    date = date_elem.get_text(strip=True)[:50]
+                    output.append(f"\n• Meeting: {date}")
+                    
+                    if statement_link:
+                        link = statement_link.get('href', '')
+                        if link and not link.startswith('http'):
+                            link = f"https://www.federalreserve.gov{link}"
+                        output.append(f"  Statement: {link}")
+            except Exception:
+                continue
+        
+        if len(output) == 1:
+            output.append("Unable to parse FOMC calendar. Visit https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        return f"Error fetching FOMC statement: {str(e)}"
+
+
 # ========== AGENT SETUP ==========
 
 STOCK_SYSTEM_PROMPT = """You are an expert stock analyst with deep knowledge of financial markets and technical analysis.
@@ -1065,13 +1356,15 @@ You have access to comprehensive, validated data sources that match TradingView 
 When analyzing stocks, you MUST:
 1. Fetch comprehensive financial metrics using get_financial_metrics (includes valuation, profitability, growth, financial health)
 2. Get detailed technical indicators using get_technical_indicators (includes RSI, MACD, Bollinger Bands, moving averages, volume, support/resistance)
-3. Check recent news and sentiment using get_market_news
+3. Check recent news and sentiment using get_market_news (Yahoo, Finnhub, Polygon)
+4. Search for additional sentiment using search_brave_sentiment (web-wide sentiment from Brave Search)
 
 IMPORTANT DATA ACCURACY NOTES:
 - Technical indicators use the same data source as TradingView charts (Yahoo Finance, 1-year daily data)
 - All metrics are validated and include interpretation flags (✅ ⚠️ ❌)
 - Price data is consistent between technical analysis and chart visualization
 - Fundamental metrics include comprehensive ratios with industry context
+- Web sentiment provides additional market context from recent articles and discussions
 
 Provide a clear, structured analysis with:
 1. **Valuation Assessment**: 
@@ -1093,8 +1386,9 @@ Provide a clear, structured analysis with:
    - Cash position and balance sheet strength
    
 4. **Sentiment Analysis**: 
-   - Recent news impact
-   - Market sentiment from news
+   - Recent news impact from traditional sources
+   - Web-wide sentiment from Brave Search
+   - Overall market mood (bullish/bearish/neutral)
    
 5. **Investment Recommendation**: 
    - Buy/Hold/Sell with clear reasoning
@@ -1110,6 +1404,9 @@ When analyzing macro topics, you should:
 1. Get economic indicators using get_economic_indicators (options: 'general', 'inflation', 'employment', 'rates', 'gdp')
 2. Check Fed policy using get_fed_policy_info
 3. Get bond yields using get_bond_yields
+4. Search for recent breaking news using search_recent_macro_news
+5. Get latest Fed speeches using get_fed_speeches
+6. Get FOMC statements using get_latest_fomc_statement
 
 Provide a clear, structured analysis with:
 - Current economic conditions
@@ -1121,21 +1418,176 @@ Be concise but thorough. Use data to support your analysis."""
 
 # Initialize LLM
 llm = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct",
-    temperature=0.1,
+    model="openai/gpt-oss-120b",
+    temperature=0.2,
     api_key=groqK,
     max_tokens=2048,
     max_retries=3,
 )
 
 
+# ========== PRIORITY 1: QUESTION VALIDATION ==========
+
+def validate_macro_question(question: str) -> dict:
+    """
+    Validates if the question is appropriate for macro analysis.
+    
+    Returns:
+        {
+            "is_valid": bool,
+            "question_type": str,  # "macro_policy", "economic_data", "market_outlook", etc.
+            "required_data": list, # ["fed_policy", "inflation", "yields"]
+            "reasoning": str
+        }
+    """
+    validator_prompt = f"""You are a macro economics question validator.
+
+Analyze if this question can be answered with macro economic data:
+- Federal Reserve policy
+- Economic indicators (inflation, employment, GDP)
+- Bond yields and interest rates
+- General economic outlook
+- Recent Fed speeches and FOMC statements
+
+Respond ONLY with valid JSON (no markdown, no code blocks):
+{{
+    "is_valid": true or false,
+    "question_type": "macro_policy" or "economic_data" or "market_outlook" or "off_topic",
+    "required_data": ["fed_policy", "inflation", "yields", "employment", "gdp", "news"],
+    "reasoning": "brief explanation"
+}}
+
+Question: {question}"""
+
+    try:
+        response = llm.invoke(validator_prompt)
+        content = response.content.strip()
+        
+        # Try to extract JSON from response
+        if content.startswith("```"):
+            # Remove markdown code blocks if present
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        
+        result = json.loads(content)
+        return result
+    except Exception as e:
+        # Default to valid if parsing fails - allow agent to try
+        return {
+            "is_valid": True,
+            "question_type": "general",
+            "required_data": ["general"],
+            "reasoning": f"Validation parsing failed: {str(e)}. Proceeding with analysis."
+        }
+
+
+# ========== PRIORITY 2: LLM-BASED TOOL SELECTION ==========
+
+# Tool descriptions for intelligent selection
+MACRO_TOOL_DESCRIPTIONS = {
+    "get_economic_indicators": "FRED economic data (inflation, employment, GDP, rates). Pass 'general', 'inflation', 'employment', 'rates', or 'gdp' as input.",
+    "get_fed_policy_info": "Federal Reserve policy indicators and current stance. No input needed.",
+    "get_bond_yields": "US Treasury yield curve and bond data. No input needed.",
+    "search_recent_macro_news": "Breaking macro news from last 48 hours. Pass search query as input.",
+    "get_fed_speeches": "Recent Fed speeches and communications. No input needed.",
+    "get_latest_fomc_statement": "Latest FOMC meeting statement. No input needed."
+}
+
+# Map tool names to functions
+MACRO_TOOL_MAP = {
+    "get_economic_indicators": get_economic_indicators,
+    "get_fed_policy_info": get_fed_policy_info,
+    "get_bond_yields": get_bond_yields,
+    "search_recent_macro_news": search_recent_macro_news,
+    "get_fed_speeches": get_fed_speeches,
+    "get_latest_fomc_statement": get_latest_fomc_statement
+}
+
+
+def select_tools_for_question(question: str, validation: dict) -> list:
+    """
+    Use LLM to intelligently select which tools are needed for the question.
+    Returns list of (tool_name, input_value) tuples.
+    """
+    tool_prompt = f"""You are a tool selection expert for macro economic analysis.
+
+Given this question, select the MINIMUM set of tools needed to answer it.
+
+Available tools:
+{json.dumps(MACRO_TOOL_DESCRIPTIONS, indent=2)}
+
+Question type: {validation.get('question_type', 'general')}
+Required data hints: {validation.get('required_data', [])}
+Question: {question}
+
+Respond ONLY with a JSON array of objects. Each object has "tool" and "input" keys.
+For tools that don't need input, use empty string "".
+
+Example response:
+[
+    {{"tool": "get_economic_indicators", "input": "inflation"}},
+    {{"tool": "get_fed_policy_info", "input": ""}}
+]
+
+Be conservative - only select tools that are truly needed. Maximum 4 tools."""
+
+    try:
+        response = llm.invoke(tool_prompt)
+        content = response.content.strip()
+        
+        # Extract JSON from response
+        if "```" in content:
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        
+        # Find JSON array in response
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        if start >= 0 and end > start:
+            content = content[start:end]
+        
+        tools = json.loads(content)
+        return [(t["tool"], t.get("input", "")) for t in tools if t.get("tool") in MACRO_TOOL_MAP]
+    except Exception as e:
+        print(f"⚠️ Tool selection failed: {e}")
+        # Default fallback: basic tools
+        return [
+            ("get_economic_indicators", "general"),
+            ("get_fed_policy_info", ""),
+            ("get_bond_yields", "")
+        ]
+
+
+# Flag for agent availability (used for compatibility with existing code)
+MACRO_AGENT_AVAILABLE = True  # Using LLM-based selection instead
+
+
 def analyze_stock_with_tools(ticker: str, company_name: str | None = None) -> str:
     """Analyze a stock by gathering data from tools and synthesizing with LLM."""
     try:
         # Gather data from tools
+        print(f"📊 Fetching financial metrics for {ticker}...")
         metrics = get_financial_metrics.invoke(ticker)
+        
+        print(f"📈 Fetching technical indicators for {ticker}...")
         technical = get_technical_indicators.invoke(ticker)
+        
+        print(f"📰 Fetching market news for {ticker}...")
         news = get_market_news.invoke(ticker)
+        
+        # Fetch Brave Search sentiment for additional context
+        print(f"🔍 Searching Brave for sentiment on {ticker}...")
+        brave_sentiment = ""
+        if brave:  # Only if Brave API key is configured
+            try:
+                brave_sentiment = search_brave_sentiment.invoke(ticker)
+            except Exception as e:
+                print(f"⚠️ Brave Search failed: {e}")
+                brave_sentiment = "Brave Search unavailable"
         
         # Create a comprehensive prompt for the LLM
         display_name = company_name or TICKER_TO_NAME.get(ticker)
@@ -1150,8 +1602,11 @@ Here is the data gathered for {header}:
 ## Technical Indicators
 {technical}
 
-## Recent News
+## Recent News (Yahoo/Finnhub/Polygon)
 {news}
+
+## Web Sentiment (Brave Search)
+{brave_sentiment if brave_sentiment else "Not available"}
 """
         
         prompt = f"""{STOCK_SYSTEM_PROMPT}
@@ -1167,6 +1622,7 @@ Provide your analysis following the structure outlined in the system prompt. Be 
 - How valuation metrics compare to industry standards
 - What the technical signals are telling you
 - How fundamental strength aligns with technical outlook
+- Overall market sentiment from news and web sources
 - Clear risk/reward assessment
 
 Be thorough, data-driven, and actionable."""
@@ -1179,40 +1635,66 @@ Be thorough, data-driven, and actionable."""
 
 
 def analyze_macro_with_tools(topic: str) -> str:
-    """Analyze macro conditions by gathering data from tools and synthesizing with LLM."""
+    """Analyze macro conditions using ReAct agent with validation."""
     try:
-        # Gather data from tools
-        general_indicators = get_economic_indicators.invoke("general")
-        fed_policy = get_fed_policy_info.invoke("")
-        bond_yields = get_bond_yields.invoke("")
+        # ========== PRIORITY 1: Validate question first ==========
+        print(f"🔍 Validating question: {topic}")
+        validation = validate_macro_question(topic)
         
-        # Get additional specific data based on topic
-        additional_data = ""
-        topic_lower = topic.lower()
-        if "inflation" in topic_lower:
-            additional_data = "\n## Inflation Data\n" + get_economic_indicators.invoke("inflation")
-        elif "employment" in topic_lower or "job" in topic_lower:
-            additional_data = "\n## Employment Data\n" + get_economic_indicators.invoke("employment")
-        elif "gdp" in topic_lower or "growth" in topic_lower:
-            additional_data = "\n## GDP Data\n" + get_economic_indicators.invoke("gdp")
-        elif "rate" in topic_lower or "yield" in topic_lower:
-            additional_data = "\n## Interest Rates Data\n" + get_economic_indicators.invoke("rates")
-        
-        data_summary = f"""
-## General Economic Indicators
-{general_indicators}
+        if not validation.get("is_valid", True):
+            return f"""⚠️ **Off-Topic Question Detected**
 
-## Fed Policy
-{fed_policy}
+This question doesn't appear to be about macroeconomics or markets.
 
-## Bond Yields
-{bond_yields}
-{additional_data}
-"""
+**Reasoning:** {validation.get('reasoning', 'Question is not related to macro analysis.')}
+
+**What I can help with:**
+- Federal Reserve policy and interest rates
+- Economic indicators (inflation, employment, GDP)
+- Bond yields and yield curve analysis
+- Market outlook and investment positioning
+- Breaking economic news and Fed communications
+
+Please rephrase your question to focus on macroeconomic topics."""
         
+        print(f"✅ Question validated: {validation.get('question_type', 'general')}")
+        print(f"📊 Required data: {validation.get('required_data', [])}")
+        
+        # ========== PRIORITY 2: LLM-Based Tool Selection ==========
+        print("🤖 Selecting tools for question...")
+        selected_tools = select_tools_for_question(topic, validation)
+        print(f"🔧 Selected tools: {[t[0] for t in selected_tools]}")
+        
+        # Execute selected tools and gather data
+        data_sections = []
+        tools_used = []
+        
+        for tool_name, tool_input in selected_tools:
+            try:
+                tool_func = MACRO_TOOL_MAP.get(tool_name)
+                if tool_func:
+                    print(f"  📊 Executing {tool_name}...")
+                    result = tool_func.invoke(tool_input) if tool_input else tool_func.invoke("")
+                    data_sections.append(f"## {tool_name.replace('_', ' ').title()}\n{result}")
+                    tools_used.append(tool_name)
+            except Exception as tool_error:
+                print(f"  ⚠️ Error in {tool_name}: {tool_error}")
+                data_sections.append(f"## {tool_name.replace('_', ' ').title()}\nError: {str(tool_error)}")
+        
+        # If no tools executed, use fallback
+        if not data_sections:
+            print("📉 Using fallback direct analysis...")
+            data_sections.append(f"## Economic Indicators\n{get_economic_indicators.invoke('general')}")
+            data_sections.append(f"## Fed Policy\n{get_fed_policy_info.invoke('')}")
+            data_sections.append(f"## Bond Yields\n{get_bond_yields.invoke('')}")
+            tools_used = ["get_economic_indicators", "get_fed_policy_info", "get_bond_yields"]
+        
+        data_summary = "\n\n".join(data_sections)
+        
+        # Synthesize with LLM
         prompt = f"""{MACRO_SYSTEM_PROMPT}
 
-Here is the current macro data:
+Here is the current macro data gathered from {len(tools_used)} data sources:
 {data_summary}
 
 User's question/topic: {topic}
@@ -1226,7 +1708,10 @@ Based on this data, provide a comprehensive macro analysis including:
 Be concise but thorough."""
 
         response = llm.invoke(prompt)
-        return response.content
+        
+        # Add tools used for transparency
+        output = f"*Data sources: {', '.join(tools_used)}*\n\n{response.content}"
+        return output
         
     except Exception as e:
         return f"Error analyzing macro topic: {str(e)}"
@@ -1434,5 +1919,5 @@ if __name__ == '__main__':
     print("🚀 Starting Agentic Financial Analysis Server...")
     print("📊 Stock Analysis Agent: Ready")
     print("🌍 Macro Analysis Agent: Ready")
-    print("🔗 Server running at http://localhost:5000")
-    app.run(debug=True, port=5000)
+    print("🔗 Server running at http://localhost:5090")
+    app.run(debug=True, port=5090)

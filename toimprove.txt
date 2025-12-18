@@ -1,0 +1,4 @@
+Derivatives data
+    - Put/Call Ratio: integrate in the response from the Stock Analysis
+    - Implied Volatility: integrate it as well, especially for the stock that is near earning announcement
+    - 

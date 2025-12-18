@@ -507,6 +507,11 @@ main {
     background: rgba(168, 85, 247, 0.15);
 }
 
+.suggestion-item.selected {
+    background: rgba(168, 85, 247, 0.25);
+    outline: 1px solid var(--accent-purple);
+}
+
 .suggestion-ticker {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.85rem;
@@ -520,6 +525,11 @@ body.light-mode .suggestions-panel {
 
 body.light-mode .suggestion-item:hover {
     background: rgba(99, 102, 241, 0.15);
+}
+
+body.light-mode .suggestion-item.selected {
+    background: rgba(99, 102, 241, 0.25);
+    outline: 1px solid var(--accent-purple);
 }
 
 /* Analyze Button */

@@ -234,8 +234,9 @@
                 <div class="input-group">
                     <label for="correlation-tickers">Tickers (comma or space separated)</label>
                     <div class="input-wrapper">
-                        <input type="text" id="correlation-tickers" placeholder="AAPL, MSFT, NVDA, AMZN, GOOGL, TSM, AVGO">
+                        <input type="text" id="correlation-tickers" placeholder="AAPL, MSFT, NVDA, AMZN, GOOGL, TSM, AVGO" autocomplete="off">
                     </div>
+                    <div class="suggestions-panel" id="correlation-suggestions"></div>
                     <small class="helper-text">Example: AAPL MSFT NVDA TSLA GOOGL | Minimum 2, maximum 25.</small>
                 </div>
                 <div class="correlation-hints">
@@ -300,11 +301,17 @@
         const correlationGrid = document.getElementById('correlation-grid');
         const correlationAsOf = document.getElementById('correlation-asof');
         const correlationWarning = document.getElementById('correlation-warning');
+        const correlationSuggestions = document.getElementById('correlation-suggestions');
 
         const THEME_STORAGE_KEY = 'agentic-finance-theme';
         let suggestionTimer;
         let suggestionController;
+        let correlationSuggestionTimer;
+        let correlationSuggestionController;
         let ignoreNextInput = false; // Flag to prevent input event after selection
+        let ignoreNextCorrelationInput = false; // Flag for correlation input
+        let stockSelectedIndex = -1; // Track keyboard-selected suggestion
+        let correlationSelectedIndex = -1; // Track correlation keyboard-selected suggestion
 
         function applyTheme(theme) {
             const isLight = theme === 'light';
@@ -478,6 +485,7 @@
             if (!tickerSuggestions) return;
             tickerSuggestions.innerHTML = '';
             tickerSuggestions.classList.remove('visible');
+            stockSelectedIndex = -1;
         }
 
         function renderTickerSuggestions(items = []) {
@@ -486,14 +494,37 @@
                 clearTickerSuggestions();
                 return;
             }
-            const markup = items.map(item => `
-                <button type="button" class="suggestion-item" data-ticker="${item.ticker}">
+            stockSelectedIndex = -1;
+            const markup = items.map((item, index) => `
+                <button type="button" class="suggestion-item" data-ticker="${item.ticker}" data-index="${index}">
                     <span class="suggestion-name">${item.company}</span>
                     <span class="suggestion-ticker">${item.ticker}</span>
                 </button>
             `).join('');
             tickerSuggestions.innerHTML = markup;
             tickerSuggestions.classList.add('visible');
+        }
+
+        function updateStockSuggestionSelection() {
+            if (!tickerSuggestions) return;
+            const items = tickerSuggestions.querySelectorAll('.suggestion-item');
+            items.forEach((item, index) => {
+                item.classList.toggle('selected', index === stockSelectedIndex);
+            });
+            // Scroll selected item into view
+            if (stockSelectedIndex >= 0 && items[stockSelectedIndex]) {
+                items[stockSelectedIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function selectStockSuggestion(index) {
+            const items = tickerSuggestions?.querySelectorAll('.suggestion-item');
+            if (!items || !items[index]) return;
+            
+            ignoreNextInput = true;
+            stockTickerInput.value = items[index].dataset.ticker;
+            clearTickerSuggestions();
+            setTimeout(() => stockTickerInput.focus(), 50);
         }
 
         async function fetchTickerSuggestions(term) {
@@ -547,8 +578,30 @@
             });
 
             stockTickerInput.addEventListener('keydown', (event) => {
+                const isVisible = tickerSuggestions.classList.contains('visible');
+                const items = tickerSuggestions.querySelectorAll('.suggestion-item');
+                const itemCount = items.length;
+                
                 if (event.key === 'Escape') {
                     clearTickerSuggestions();
+                    return;
+                }
+                
+                if (!isVisible || itemCount === 0) return;
+                
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    stockSelectedIndex = stockSelectedIndex < itemCount - 1 ? stockSelectedIndex + 1 : 0;
+                    updateStockSuggestionSelection();
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    stockSelectedIndex = stockSelectedIndex > 0 ? stockSelectedIndex - 1 : itemCount - 1;
+                    updateStockSuggestionSelection();
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (stockSelectedIndex >= 0) {
+                        selectStockSuggestion(stockSelectedIndex);
+                    }
                 }
             });
 
@@ -571,6 +624,172 @@
             document.addEventListener('click', (event) => {
                 if (!tickerSuggestions.contains(event.target) && event.target !== stockTickerInput) {
                     clearTickerSuggestions();
+                }
+            });
+        }
+
+        // ========== CORRELATION TICKER SUGGESTIONS ==========
+        function clearCorrelationSuggestions() {
+            if (!correlationSuggestions) return;
+            correlationSuggestions.innerHTML = '';
+            correlationSuggestions.classList.remove('visible');
+            correlationSelectedIndex = -1;
+        }
+
+        function renderCorrelationSuggestions(items = []) {
+            if (!correlationSuggestions) return;
+            if (!items.length) {
+                clearCorrelationSuggestions();
+                return;
+            }
+            correlationSelectedIndex = -1;
+            const markup = items.map((item, index) => `
+                <button type="button" class="suggestion-item" data-ticker="${item.ticker}" data-index="${index}">
+                    <span class="suggestion-name">${item.company}</span>
+                    <span class="suggestion-ticker">${item.ticker}</span>
+                </button>
+            `).join('');
+            correlationSuggestions.innerHTML = markup;
+            correlationSuggestions.classList.add('visible');
+        }
+
+        function updateCorrelationSuggestionSelection() {
+            if (!correlationSuggestions) return;
+            const items = correlationSuggestions.querySelectorAll('.suggestion-item');
+            items.forEach((item, index) => {
+                item.classList.toggle('selected', index === correlationSelectedIndex);
+            });
+            if (correlationSelectedIndex >= 0 && items[correlationSelectedIndex]) {
+                items[correlationSelectedIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function selectCorrelationSuggestion(index) {
+            const items = correlationSuggestions?.querySelectorAll('.suggestion-item');
+            if (!items || !items[index]) return;
+            
+            ignoreNextCorrelationInput = true;
+            const selectedTicker = items[index].dataset.ticker;
+            const currentValue = correlationInput.value;
+            const newValue = replaceLastWord(currentValue, selectedTicker) + ', ';
+            correlationInput.value = newValue;
+            clearCorrelationSuggestions();
+            setTimeout(() => correlationInput.focus(), 50);
+        }
+
+        async function fetchCorrelationSuggestions(term) {
+            if (!correlationSuggestions) return;
+            if (correlationSuggestionController) {
+                correlationSuggestionController.abort();
+            }
+            correlationSuggestionController = new AbortController();
+            try {
+                const response = await fetch(`${API_BASE}/api/tickers/search?q=${encodeURIComponent(term)}`, {
+                    signal: correlationSuggestionController.signal
+                });
+                if (!response.ok) {
+                    renderCorrelationSuggestions([]);
+                    return;
+                }
+                const data = await response.json();
+                renderCorrelationSuggestions(Array.isArray(data) ? data : []);
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.warn('Correlation suggestion error:', error);
+                }
+            }
+        }
+
+        // Get the last word being typed (after comma or space)
+        function getLastWord(input) {
+            const parts = input.split(/[,\s]+/);
+            return parts[parts.length - 1] || '';
+        }
+
+        // Replace the last word with the selected ticker
+        function replaceLastWord(input, newTicker) {
+            const parts = input.split(/([,\s]+)/);
+            // Find and replace the last non-separator part
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (parts[i].trim() && !/^[,\s]+$/.test(parts[i])) {
+                    parts[i] = newTicker;
+                    break;
+                }
+            }
+            return parts.join('');
+        }
+
+        if (correlationInput && correlationSuggestions) {
+            correlationInput.addEventListener('input', () => {
+                if (ignoreNextCorrelationInput) {
+                    ignoreNextCorrelationInput = false;
+                    return;
+                }
+
+                const lastWord = getLastWord(correlationInput.value);
+                if (lastWord.length < 2) {
+                    clearCorrelationSuggestions();
+                    return;
+                }
+                clearTimeout(correlationSuggestionTimer);
+                correlationSuggestionTimer = setTimeout(() => fetchCorrelationSuggestions(lastWord), 200);
+            });
+
+            correlationInput.addEventListener('focus', () => {
+                if (ignoreNextCorrelationInput) return;
+                const lastWord = getLastWord(correlationInput.value);
+                if (lastWord.length >= 2 && !correlationSuggestions.classList.contains('visible')) {
+                    fetchCorrelationSuggestions(lastWord);
+                }
+            });
+
+            correlationInput.addEventListener('keydown', (event) => {
+                const isVisible = correlationSuggestions.classList.contains('visible');
+                const items = correlationSuggestions.querySelectorAll('.suggestion-item');
+                const itemCount = items.length;
+                
+                if (event.key === 'Escape') {
+                    clearCorrelationSuggestions();
+                    return;
+                }
+                
+                if (!isVisible || itemCount === 0) return;
+                
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    correlationSelectedIndex = correlationSelectedIndex < itemCount - 1 ? correlationSelectedIndex + 1 : 0;
+                    updateCorrelationSuggestionSelection();
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    correlationSelectedIndex = correlationSelectedIndex > 0 ? correlationSelectedIndex - 1 : itemCount - 1;
+                    updateCorrelationSuggestionSelection();
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (correlationSelectedIndex >= 0) {
+                        selectCorrelationSuggestion(correlationSelectedIndex);
+                    }
+                }
+            });
+
+            correlationSuggestions.addEventListener('click', (event) => {
+                const target = event.target.closest('.suggestion-item');
+                if (!target) return;
+
+                ignoreNextCorrelationInput = true;
+                const selectedTicker = target.dataset.ticker;
+                
+                // Replace the last word with the selected ticker and add comma+space
+                const currentValue = correlationInput.value;
+                const newValue = replaceLastWord(currentValue, selectedTicker) + ', ';
+                correlationInput.value = newValue;
+                
+                clearCorrelationSuggestions();
+                setTimeout(() => correlationInput.focus(), 50);
+            });
+
+            document.addEventListener('click', (event) => {
+                if (!correlationSuggestions.contains(event.target) && event.target !== correlationInput) {
+                    clearCorrelationSuggestions();
                 }
             });
         }
