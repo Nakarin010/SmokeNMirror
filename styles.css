@@ -603,6 +603,8 @@ body.light-mode .suggestion-item.selected {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
     margin-bottom: 1.5rem;
     padding-bottom: 1.5rem;
     border-bottom: 1px solid var(--border-color);
@@ -631,6 +633,44 @@ body.light-mode .suggestion-item.selected {
 .results-timestamp {
     color: var(--text-muted);
     font-size: 0.875rem;
+}
+
+/* Version Toggle Buttons */
+.version-toggle {
+    display: flex;
+    gap: 0.5rem;
+    background: var(--bg-tertiary);
+    padding: 0.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.version-btn {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'Outfit', sans-serif;
+}
+
+.version-btn:hover {
+    background: rgba(168, 85, 247, 0.1);
+    color: var(--text-primary);
+}
+
+.version-btn.active {
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.version-btn:active {
+    transform: scale(0.95);
 }
 
 .results-content {
@@ -996,6 +1036,21 @@ footer a {
         width: 100%;
         flex-wrap: wrap;
         justify-content: flex-start;
+    }
+
+    .version-toggle {
+        order: 3;
+        width: 100%;
+    }
+
+    .version-btn {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .results-timestamp {
+        order: 2;
     }
 }
 

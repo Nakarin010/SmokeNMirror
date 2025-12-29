@@ -108,6 +108,11 @@
                         <h4 id="stock-results-ticker">Analysis Results</h4>
                         <span class="results-badge">Stock Agent</span>
                     </div>
+                    <div class="version-toggle">
+                        <button class="version-btn active" data-version="final" title="Flash 3 polished final output">Final</button>
+                        <button class="version-btn" data-version="validated" title="MiMo validated/corrected version">Validated</button>
+                        <button class="version-btn" data-version="original" title="GPT-OSS raw output">Raw</button>
+                    </div>
                     <span class="results-timestamp" id="stock-timestamp"></span>
                 </div>
                 
@@ -177,6 +182,11 @@
                     <div class="results-title">
                         <h4>Macro Analysis</h4>
                         <span class="results-badge">Macro Agent</span>
+                    </div>
+                    <div class="version-toggle">
+                        <button class="version-btn active" data-version="final" title="Flash 3 polished final output">Final</button>
+                        <button class="version-btn" data-version="validated" title="MiMo validated/corrected version">Validated</button>
+                        <button class="version-btn" data-version="original" title="GPT-OSS raw output">Raw</button>
                     </div>
                     <span class="results-timestamp" id="macro-timestamp"></span>
                 </div>
@@ -312,6 +322,18 @@
         let ignoreNextCorrelationInput = false; // Flag for correlation input
         let stockSelectedIndex = -1; // Track keyboard-selected suggestion
         let correlationSelectedIndex = -1; // Track correlation keyboard-selected suggestion
+
+        // Store analysis versions for toggling
+        let stockAnalysisVersions = {
+            final: '',
+            validated: '',
+            original: ''
+        };
+        let macroAnalysisVersions = {
+            final: '',
+            validated: '',
+            original: ''
+        };
 
         function applyTheme(theme) {
             const isLight = theme === 'light';
@@ -797,16 +819,16 @@
         // Analyze Stock
         analyzeStockBtn.addEventListener('click', async () => {
             const tickerInputValue = stockTickerInput.value.trim();
-            
+
             if (!tickerInputValue) {
                 showToast('Please enter a stock ticker', 'warning');
                 return;
             }
-            
+
             setButtonLoading(analyzeStockBtn, true);
             stockResults.classList.remove('visible');
             clearTickerSuggestions();
-            
+
             try {
                 const response = await fetch(`${API_BASE}/api/analyze/stock`, {
                     method: 'POST',
@@ -815,22 +837,40 @@
                     },
                     body: JSON.stringify({ ticker: tickerInputValue })
                 });
-                
+
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.error || 'Analysis failed');
                 }
-                
+
                 const data = await response.json();
-                
+
+                // Store all analysis versions for toggle buttons
+                stockAnalysisVersions.final = data.analysis || '';
+                stockAnalysisVersions.validated = data.validatedAnalysis || data.analysis || '';
+                stockAnalysisVersions.original = data.originalAnalysis || data.analysis || '';
+
+                // Log for debugging
+                console.log('Stock versions stored:', {
+                    final: stockAnalysisVersions.final?.substring(0, 100),
+                    validated: stockAnalysisVersions.validated?.substring(0, 100),
+                    original: stockAnalysisVersions.original?.substring(0, 100)
+                });
+
                 const label = data.displayName ? `${data.displayName} (${data.ticker})` : data.ticker;
                 stockResultsTicker.textContent = `${label} Analysis`;
                 stockTimestamp.textContent = formatTimestamp(data.timestamp);
-                stockAnalysis.innerHTML = formatAnalysis(data.analysis);
+                stockAnalysis.innerHTML = formatAnalysis(stockAnalysisVersions.final);
+
+                // Reset version toggle to "Final"
+                document.querySelectorAll('#stock-results .version-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.version === 'final');
+                });
+
                 stockResults.classList.add('visible');
-                
+
                 showToast(`Analysis complete for ${label}`, 'success');
-                
+
             } catch (error) {
                 console.error('Error:', error);
                 showToast(error.message || 'Failed to analyze stock. Please try again.', 'error');
@@ -842,15 +882,15 @@
         // Analyze Macro
         analyzeMacroBtn.addEventListener('click', async () => {
             const topic = macroTopicInput.value.trim();
-            
+
             if (!topic) {
                 showToast('Please enter a topic or question', 'warning');
                 return;
             }
-            
+
             setButtonLoading(analyzeMacroBtn, true);
             macroResults.classList.remove('visible');
-            
+
             try {
                 const response = await fetch(`${API_BASE}/api/analyze/macro`, {
                     method: 'POST',
@@ -859,26 +899,93 @@
                     },
                     body: JSON.stringify({ topic })
                 });
-                
+
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.error || 'Analysis failed');
                 }
-                
+
                 const data = await response.json();
-                
+
+                // Store all analysis versions
+                macroAnalysisVersions.final = data.analysis || '';
+                macroAnalysisVersions.validated = data.validatedAnalysis || data.analysis || '';
+                macroAnalysisVersions.original = data.originalAnalysis || data.analysis || '';
+
+                // Log for debugging
+                console.log('Macro versions stored:', {
+                    final: macroAnalysisVersions.final?.substring(0, 100),
+                    validated: macroAnalysisVersions.validated?.substring(0, 100),
+                    original: macroAnalysisVersions.original?.substring(0, 100)
+                });
+
                 macroTimestamp.textContent = formatTimestamp(data.timestamp);
-                macroAnalysis.innerHTML = formatAnalysis(data.analysis);
+                macroAnalysis.innerHTML = formatAnalysis(macroAnalysisVersions.final);
+
+                // Reset version toggle to "Final"
+                document.querySelectorAll('#macro-results .version-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.version === 'final');
+                });
+
                 macroResults.classList.add('visible');
-                
+
                 showToast('Macro analysis complete', 'success');
-                
+
             } catch (error) {
                 console.error('Error:', error);
                 showToast('Failed to analyze macro topic. Please try again.', 'error');
             } finally {
                 setButtonLoading(analyzeMacroBtn, false);
             }
+        });
+
+        // Version Toggle Functionality
+        document.addEventListener('click', (event) => {
+            const versionBtn = event.target.closest('.version-btn');
+            if (!versionBtn) return;
+
+            const version = versionBtn.dataset.version;
+            const resultsCard = versionBtn.closest('.results-card');
+
+            // Determine if this is stock or macro
+            const isStock = resultsCard.id === 'stock-results';
+            const analysisEl = isStock ? stockAnalysis : macroAnalysis;
+            const versions = isStock ? stockAnalysisVersions : macroAnalysisVersions;
+
+            // Debug logging
+            console.log('Version toggle clicked:', {
+                version,
+                isStock,
+                hasContent: {
+                    final: !!versions.final,
+                    validated: !!versions.validated,
+                    original: !!versions.original
+                },
+                contentLengths: {
+                    final: versions.final?.length || 0,
+                    validated: versions.validated?.length || 0,
+                    original: versions.original?.length || 0
+                }
+            });
+
+            // Update active state
+            resultsCard.querySelectorAll('.version-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            versionBtn.classList.add('active');
+
+            // Display the selected version
+            const content = versions[version] || versions.final || '';
+            console.log('Displaying content (first 200 chars):', content?.substring(0, 200));
+            analysisEl.innerHTML = formatAnalysis(content);
+
+            // Show toast with version info
+            const versionLabels = {
+                'final': 'Final (Flash 3 Polished)',
+                'validated': 'Validated (MiMo Corrected)',
+                'original': 'Raw (GPT-OSS Output)'
+            };
+            showToast(`Showing ${versionLabels[version]}`, 'info');
         });
 
         // Correlation Matrix

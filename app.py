@@ -1,6 +1,24 @@
 """
 Agentic Financial Analysis Web Application
 A modern web interface for stock analysis and global macro outlook
+
+QUAD-LLM ARCHITECTURE (4-Stage Quality Pipeline):
+1. Mistral AI: Fast input validation, tool selection, and sentiment analysis
+2. Groq OAI/gpt-oss-120b: Comprehensive synthesis and deep analysis (FREE)
+3. MiMo-V2-Flash (OpenRouter): Output validation with reasoning chains (FREE)
+4. Google AI Flash 3: Final polish and professional cleanup (virtually FREE)
+
+Total cost per analysis: ~$0.0003 (Mistral validation only)
+- Stage 1 (Mistral): $0.0003
+- Stage 2 (Groq): $0.00 (free tier)
+- Stage 3 (MiMo): $0.00 (free tier)
+- Stage 4 (Flash 3): $0.00001 (negligible)
+
+Benefits:
+- Multi-stage quality assurance
+- Each LLM optimized for its specialized task
+- Transparent validation with raw output access
+- Professional-grade final output
 """
 
 import json
@@ -22,12 +40,18 @@ from datetime import datetime
 from datetime import date as _date
 from fredapi import Fred
 import time
+import random
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from google import genai
 
 # LangChain imports
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
+from langchain_mistralai import ChatMistralAI
+
+# OpenRouter (for output validation with MiMo-V2-Flash)
+from openai import OpenAI
 
 # Web Search & Scraping imports
 from bs4 import BeautifulSoup
@@ -50,7 +74,15 @@ newsapi = os.getenv("NEWS")
 serpapi = os.getenv("SERP")
 gnews = os.getenv("GNEWS")
 brave = os.getenv("BRAVE")
-
+openrouter_key = os.getenv("OPENROUTER")
+nvidianim_key = os.getenv("NVIDIANIM") #Nvidia NIM platform 
+fmp = os.getenv("FMP") #Financial Modeling Prep
+gai = os.getenv("GAI") #Google AI Studio
+# Google GenAI rate limiting (avoid 429s)
+GOOGLE_GENAI_MIN_INTERVAL = float(os.getenv("GOOGLE_GENAI_MIN_INTERVAL", "2.0"))
+GOOGLE_GENAI_MAX_RETRIES = int(os.getenv("GOOGLE_GENAI_MAX_RETRIES", "3"))
+GOOGLE_GENAI_BACKOFF_BASE = float(os.getenv("GOOGLE_GENAI_BACKOFF_BASE", "1.5"))
+_last_google_genai_ts = 0.0
 # Global reference date
 CURRENT_REF_DATE: _date | None = None
 
@@ -1216,6 +1248,114 @@ def get_bond_yields() -> str:
     return "\n".join(out)
 
 
+@tool
+def get_market_risk(country: str = "") -> str:
+    """
+    Fetches current market risk premium data from Financial Modeling Prep.
+    The market risk premium is the expected return from the market above the risk-free rate.
+    Essential for CAPM calculations, DCF valuation, and understanding equity risk pricing.
+
+    Args:
+        country: Optional country name to get specific country data (e.g., "Japan", "Brazil", "India")
+
+    Returns:
+        Formatted market risk premium data including country-specific premiums
+    """
+    if not fmp:
+        return "❌ FMP API key not configured"
+
+    try:
+        url = f"https://financialmodelingprep.com/api/v4/market_risk_premium?apikey={fmp}"
+        response = requests.get(url, timeout=10)
+
+        if response.status_code != 200:
+            return f"❌ FMP API error: {response.status_code}"
+
+        data = response.json()
+
+        if not data or not isinstance(data, list):
+            return "❌ No market risk premium data available"
+
+        out = ["📊 Market Risk Premium Data:"]
+        out.append("")
+
+        # If specific country requested, show it first
+        if country:
+            country_data = next((item for item in data if item.get('country', '').lower() == country.lower()), None)
+            if country_data:
+                out.append(f"🎯 {country_data.get('country')} (Requested):")
+                total_premium = country_data.get('totalEquityRiskPremium', 0)
+                country_risk = country_data.get('countryRiskPremium', 0)
+                continent = country_data.get('continent', 'N/A')
+
+                out.append(f"  • Total Equity Risk Premium: {total_premium:.2f}%")
+                out.append(f"  • Country Risk Premium: {country_risk:.2f}%")
+                out.append(f"  • Continent: {continent}")
+                out.append(f"  • Market Risk Premium (base): {total_premium - country_risk:.2f}%")
+                out.append("")
+
+        # Show major markets
+        major_countries = ['United States', 'United Kingdom', 'Germany', 'Japan', 'China', 'France', 'Canada', 'India', 'Brazil']
+        major_markets = [item for item in data if item.get('country') in major_countries]
+
+        if major_markets:
+            out.append("🌍 Major Markets:")
+            for item in major_markets:
+                country_name = item.get('country', 'Unknown')
+                total_premium = item.get('totalEquityRiskPremium', 0)
+                country_risk = item.get('countryRiskPremium', 0)
+
+                out.append(f"  • {country_name}: {total_premium:.2f}%")
+                if country_risk > 0:
+                    out.append(f"    └─ Country Risk: +{country_risk:.2f}%")
+
+        # Calculate global statistics
+        out.append("")
+        out.append("📈 Global Statistics:")
+
+        total_premiums = [item['totalEquityRiskPremium'] for item in data if 'totalEquityRiskPremium' in item]
+
+        if total_premiums:
+            avg_premium = sum(total_premiums) / len(total_premiums)
+            max_premium = max(total_premiums)
+            min_premium = min(total_premiums)
+
+            # Find countries with max/min
+            max_country = next((item['country'] for item in data if item.get('totalEquityRiskPremium') == max_premium), '')
+            min_country = next((item['country'] for item in data if item.get('totalEquityRiskPremium') == min_premium), '')
+
+            out.append(f"  • Average Global Premium: {avg_premium:.2f}%")
+            out.append(f"  • Highest: {max_premium:.2f}% ({max_country})")
+            out.append(f"  • Lowest: {min_premium:.2f}% ({min_country})")
+            out.append(f"  • Countries Covered: {len(data)}")
+
+        # Highlight US market risk premium for CAPM
+        us_data = next((item for item in data if item.get('country') == 'United States'), None)
+        if us_data:
+            us_premium = us_data.get('totalEquityRiskPremium', 0)
+            out.append("")
+            out.append("💼 For US CAPM Calculations:")
+            out.append(f"  • US Market Risk Premium: {us_premium:.2f}%")
+            out.append(f"  • Formula: Expected Return = Risk-Free Rate + Beta × {us_premium:.2f}%")
+
+        out.append("")
+        out.append("💡 Applications:")
+        out.append("  • Cost of Equity: Rf + Beta × Market Risk Premium")
+        out.append("  • WACC Calculation: Weighted average cost of capital")
+        out.append("  • International Investments: Country risk adjustments")
+
+        return "\n".join(out)
+
+    except requests.Timeout:
+        return "❌ FMP API request timed out"
+    except requests.RequestException as e:
+        return f"❌ FMP API request failed: {str(e)}"
+    except json.JSONDecodeError:
+        return "❌ Failed to parse FMP API response"
+    except Exception as e:
+        return f"❌ Error fetching market risk premium: {str(e)}"
+
+
 # ========== PRIORITY 3: WEB SEARCH TOOLS ==========
 
 @tool
@@ -1416,14 +1556,425 @@ Provide a clear, structured analysis with:
 
 Be concise but thorough. Use data to support your analysis."""
 
-# Initialize LLM
-llm = ChatGroq(
+# Initialize LLMs for Dual-LLM Architecture
+# Mistral: Fast, cost-effective for validation and routing tasks
+llm_mistral = ChatMistralAI(
+    model="mistral-large-latest",  # or "mistral-medium-latest" for cost savings
+    temperature=0.1,
+    api_key=mistral_key,
+    max_tokens=1024,  # Shorter responses for validation/routing
+    max_retries=3,
+)
+
+# Groq: Powerful analysis for final synthesis
+llm_groq = ChatGroq(
     model="openai/gpt-oss-120b",
     temperature=0.2,
     api_key=groqK,
     max_tokens=2048,
     max_retries=3,
 )
+
+# Default LLM for backwards compatibility
+llm = llm_groq
+
+# OpenRouter: Output validation with MiMo-V2-Flash reasoning model
+openrouter_client = None
+if openrouter_key:
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_key,
+    )
+    print("✅ OpenRouter MiMo-V2-Flash validator initialized")
+else:
+    print("⚠️ OpenRouter API key not set - output validation disabled")
+
+
+# ========== OUTPUT VALIDATION WITH MiMo-V2-Flash + Flash 3 CLEANUP ==========
+
+# Initialize Google AI client for final cleanup
+google_client = None
+if gai:
+    try:
+        google_client = genai.Client(api_key=gai)
+        print("✅ Google AI Flash 3 cleanup initialized")
+    except Exception as e:
+        print(f"⚠️ Google AI initialization failed: {e}")
+else:
+    print("⚠️ Google AI API key not set - final cleanup disabled")
+
+
+def _should_retry_google_error(err: Exception) -> bool:
+    """Return True when the error looks like a rate limit or transient failure."""
+    msg = str(err).lower()
+    return any(
+        needle in msg
+        for needle in (
+            "rate limit",
+            "resource_exhausted",
+            "429",
+            "quota",
+            "temporarily unavailable",
+            "timeout",
+            "unavailable",
+        )
+    )
+
+
+def _throttle_google_genai() -> None:
+    """Enforce a minimum interval between Google GenAI requests."""
+    global _last_google_genai_ts
+    now = time.monotonic()
+    wait_for = GOOGLE_GENAI_MIN_INTERVAL - (now - _last_google_genai_ts)
+    if wait_for > 0:
+        time.sleep(wait_for)
+    _last_google_genai_ts = time.monotonic()
+
+
+def polish_with_flash3(original_analysis: str, validated_analysis: str, validation_metadata: dict, context: dict) -> str:
+    """
+    Use Google AI Flash 3 to polish and clean up the final output.
+    Combines original analysis with validation improvements for a refined result.
+
+    Args:
+        original_analysis: The initial GPT-OSS analysis
+        validated_analysis: MiMo-validated/corrected version
+        validation_metadata: Quality metrics from MiMo
+        context: Original context data
+
+    Returns:
+        Polished, professional final analysis
+    """
+    if not google_client:
+        return validated_analysis  # Return validated version if Flash 3 not available
+
+    try:
+        print("✨ Polishing output with Google AI Flash 3...")
+
+        cleanup_prompt = f"""You are a professional financial writing editor. Your job is to create a final, polished analysis by combining:
+
+1. **Original Analysis** (GPT-OSS generated)
+2. **Validation Feedback** (MiMo-V2-Flash corrections)
+
+**Original Analysis:**
+{original_analysis[:3000]}
+
+**Validation Quality:** {validation_metadata.get('overall_quality', 'good')}
+**Issues Found:** {', '.join(validation_metadata.get('issues', [])) if validation_metadata.get('issues') else 'None'}
+**Suggestions:** {', '.join(validation_metadata.get('suggestions', [])) if validation_metadata.get('suggestions') else 'None'}
+
+**Validated/Corrected Version:**
+{validated_analysis[:3000]}
+
+**Instructions:**
+1. Merge the best parts of both analyses
+2. Fix any factual errors or logical inconsistencies identified
+3. Apply the validation suggestions
+4. Maintain professional financial writing tone
+5. Keep the structure clear and scannable
+6. Remove redundancy and improve clarity
+7. Ensure actionable insights are prominent
+
+**Output a clean, polished final analysis that a professional would deliver to clients.**
+Do not include meta-commentary about the editing process. Just deliver the final analysis.
+"""
+
+        polished = None
+        for attempt in range(1, GOOGLE_GENAI_MAX_RETRIES + 1):
+            _throttle_google_genai()
+            try:
+                response = google_client.models.generate_content(
+                    model="gemini-3-flash-preview",
+                    contents=cleanup_prompt
+                )
+                polished = response.text
+                break
+            except Exception as e:
+                if attempt >= GOOGLE_GENAI_MAX_RETRIES or not _should_retry_google_error(e):
+                    raise
+                backoff = GOOGLE_GENAI_BACKOFF_BASE ** attempt
+                jitter = random.uniform(0.0, 0.5)
+                time.sleep(backoff + jitter)
+
+        if polished and len(polished) > 100:
+            return polished
+        else:
+            # Fallback if Flash 3 returns insufficient content
+            return validated_analysis
+
+    except Exception as e:
+        print(f"⚠️ Flash 3 cleanup error: {e}")
+        return validated_analysis  # Fallback to validated version
+
+
+def validate_analysis_output(
+    analysis: str,
+    context: dict,
+    analysis_type: str = "stock"
+) -> dict:
+    """
+    4-LLM Quality Pipeline:
+    1. Original analysis (GPT-OSS)
+    2. Validation with reasoning (MiMo-V2-Flash)
+    3. Corrections/enhancements (MiMo second pass)
+    4. Final polish (Google AI Flash 3)
+
+    This provides comprehensive quality control:
+    - Checks for logical consistency
+    - Verifies claims against provided data
+    - Identifies potential errors or oversights
+    - Suggests improvements
+    - Delivers polished, professional output
+
+    Args:
+        analysis: The generated analysis text from GPT-OSS
+        context: Dictionary with original data (ticker, metrics, etc.)
+        analysis_type: "stock" or "macro"
+
+    Returns:
+        dict with validation results, raw versions, and final polished analysis
+    """
+    # Store original for comparison
+    original_analysis = analysis
+
+    if not openrouter_client:
+        return {
+            "validated": True,
+            "confidence": 1.0,
+            "issues": [],
+            "reasoning": "OpenRouter not configured - skipping validation",
+            "original_analysis": analysis,
+            "validated_analysis": analysis,
+            "final_analysis": analysis,
+            "enhanced_analysis": analysis  # backwards compatibility
+        }
+
+    try:
+        # Create validation prompt
+        if analysis_type == "stock":
+            ticker = context.get("ticker", "Unknown")
+            validation_prompt = f"""You are a financial analysis validator. Review this stock analysis for {ticker} and check for:
+
+1. **Logical Consistency**: Do the conclusions follow from the data?
+2. **Factual Accuracy**: Are metrics interpreted correctly?
+3. **Completeness**: Are important aspects missing?
+4. **Clarity**: Is the analysis clear and actionable?
+
+ANALYSIS TO VALIDATE:
+{analysis[:2000]}
+
+CONTEXT DATA:
+- Ticker: {ticker}
+- Display Name: {context.get('displayName', 'N/A')}
+- User Query: {context.get('userInput', 'N/A')}
+
+Provide your validation in JSON format:
+{{
+    "is_valid": true/false,
+    "confidence": 0.0 to 1.0,
+    "issues": ["list of issues found"],
+    "strengths": ["what the analysis does well"],
+    "suggestions": ["improvements to make"],
+    "overall_quality": "excellent/good/acceptable/poor"
+}}"""
+        else:  # macro
+            topic = context.get("topic", "Unknown")
+            validation_prompt = f"""You are a macroeconomic analysis validator. Review this macro analysis on "{topic}" and check for:
+
+1. **Economic Logic**: Do the conclusions follow sound economic reasoning?
+2. **Data Interpretation**: Are indicators interpreted correctly?
+3. **Policy Understanding**: Is Fed/policy analysis accurate?
+4. **Market Implications**: Are investment recommendations reasonable?
+
+ANALYSIS TO VALIDATE:
+{analysis[:2000]}
+
+CONTEXT:
+- Topic: {topic}
+
+Provide your validation in JSON format:
+{{
+    "is_valid": true/false,
+    "confidence": 0.0 to 1.0,
+    "issues": ["list of issues found"],
+    "strengths": ["what the analysis does well"],
+    "suggestions": ["improvements to make"],
+    "overall_quality": "excellent/good/acceptable/poor"
+}}"""
+
+        # First API call with reasoning enabled
+        print("🔍 Validating output with MiMo-V2-Flash reasoning...")
+        response = openrouter_client.chat.completions.create(
+            model="xiaomi/mimo-v2-flash:free",
+            messages=[{"role": "user", "content": validation_prompt}],
+            extra_body={"reasoning": {"enabled": True}}
+        )
+
+        assistant_message = response.choices[0].message
+        validation_content = assistant_message.content
+
+        # Parse the validation result
+        try:
+            # Extract JSON from response
+            if "```json" in validation_content:
+                json_start = validation_content.find("```json") + 7
+                json_end = validation_content.find("```", json_start)
+                validation_content = validation_content[json_start:json_end].strip()
+            elif "```" in validation_content:
+                json_start = validation_content.find("```") + 3
+                json_end = validation_content.find("```", json_start)
+                validation_content = validation_content[json_start:json_end].strip()
+
+            validation_result = json.loads(validation_content)
+        except json.JSONDecodeError:
+            # Fallback if JSON parsing fails
+            validation_result = {
+                "is_valid": True,
+                "confidence": 0.8,
+                "issues": [],
+                "strengths": ["Analysis completed"],
+                "suggestions": [],
+                "overall_quality": "good"
+            }
+
+        # If there are issues, do a second reasoning pass for enhancement suggestions
+        enhanced_analysis = analysis
+        if validation_result.get("issues") and len(validation_result["issues"]) > 0:
+            print("⚠️ Validation found issues - requesting enhancement suggestions...")
+
+            messages = [
+                {"role": "user", "content": validation_prompt},
+                {
+                    "role": "assistant",
+                    "content": assistant_message.content,
+                    "reasoning_details": assistant_message.reasoning_details
+                },
+                {
+                    "role": "user",
+                    "content": f"Based on these issues: {validation_result['issues']}, how should the analysis be corrected? Be specific."
+                }
+            ]
+
+            response2 = openrouter_client.chat.completions.create(
+                model="xiaomi/mimo-v2-flash:free",
+                messages=messages,
+                extra_body={"reasoning": {"enabled": True}}
+            )
+
+            enhancement_suggestions = response2.choices[0].message.content
+
+            # Add enhancement note to analysis
+            enhanced_analysis = f"{analysis}\n\n---\n**🔍 Validation Notes:**\n{enhancement_suggestions}"
+
+        # STAGE 4: Polish with Google AI Flash 3
+        validation_metadata = {
+            "is_valid": validation_result.get("is_valid", True),
+            "confidence": validation_result.get("confidence", 0.9),
+            "issues": validation_result.get("issues", []),
+            "strengths": validation_result.get("strengths", []),
+            "suggestions": validation_result.get("suggestions", []),
+            "overall_quality": validation_result.get("overall_quality", "good"),
+        }
+
+        final_analysis = polish_with_flash3(
+            original_analysis=original_analysis,
+            validated_analysis=enhanced_analysis,
+            validation_metadata=validation_metadata,
+            context=context
+        )
+
+        return {
+            "validated": validation_result.get("is_valid", True),
+            "confidence": validation_result.get("confidence", 0.9),
+            "issues": validation_result.get("issues", []),
+            "strengths": validation_result.get("strengths", []),
+            "suggestions": validation_result.get("suggestions", []),
+            "overall_quality": validation_result.get("overall_quality", "good"),
+            "reasoning": assistant_message.reasoning_details if hasattr(assistant_message, 'reasoning_details') else None,
+            # All 4 versions for transparency
+            "original_analysis": original_analysis,  # Stage 1: GPT-OSS raw output
+            "validated_analysis": enhanced_analysis,  # Stage 2-3: MiMo corrected
+            "final_analysis": final_analysis,  # Stage 4: Flash 3 polished
+            "enhanced_analysis": final_analysis  # backwards compatibility - use final polished version
+        }
+
+    except Exception as e:
+        print(f"⚠️ Output validation error: {e}")
+        return {
+            "validated": True,
+            "confidence": 0.7,
+            "issues": [],
+            "reasoning": f"Validation failed: {str(e)}",
+            "original_analysis": analysis,
+            "validated_analysis": analysis,
+            "final_analysis": analysis,
+            "enhanced_analysis": analysis
+        }
+
+
+# ========== MISTRAL SENTIMENT ANALYSIS HELPER ==========
+
+def analyze_sentiment_with_mistral(text: str, context: str = "") -> dict:
+    """
+    Use Mistral AI for fast, accurate sentiment analysis of financial text.
+
+    Args:
+        text: The text to analyze (news headline, article, etc.)
+        context: Optional context (e.g., ticker symbol, topic)
+
+    Returns:
+        dict with sentiment, confidence, and reasoning
+    """
+    if not text or not mistral_key:
+        return {
+            "sentiment": "neutral",
+            "confidence": 0.5,
+            "reasoning": "No text or Mistral API key not configured"
+        }
+
+    try:
+        prompt = f"""Analyze the sentiment of this financial text.
+
+Context: {context if context else 'Financial markets'}
+Text: {text}
+
+Respond ONLY with valid JSON (no markdown):
+{{
+    "sentiment": "bullish" or "bearish" or "neutral",
+    "confidence": 0.0 to 1.0,
+    "reasoning": "brief explanation"
+}}"""
+
+        response = llm_mistral.invoke(prompt)
+        content = response.content.strip()
+
+        # Clean up response
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        result = json.loads(content)
+        return result
+    except Exception as e:
+        # Fallback to simple keyword-based sentiment
+        text_lower = text.lower()
+        positive = sum(1 for w in ['bullish', 'growth', 'beat', 'surge', 'gain', 'profit'] if w in text_lower)
+        negative = sum(1 for w in ['bearish', 'decline', 'miss', 'drop', 'loss', 'concern'] if w in text_lower)
+
+        if positive > negative:
+            sentiment = "bullish"
+        elif negative > positive:
+            sentiment = "bearish"
+        else:
+            sentiment = "neutral"
+
+        return {
+            "sentiment": sentiment,
+            "confidence": 0.6,
+            "reasoning": f"Mistral analysis failed: {str(e)}. Using keyword fallback."
+        }
 
 
 # ========== PRIORITY 1: QUESTION VALIDATION ==========
@@ -1460,7 +2011,9 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
 Question: {question}"""
 
     try:
-        response = llm.invoke(validator_prompt)
+        # Use Mistral for fast, cost-effective validation
+        print("🤖 Using Mistral AI for question validation...")
+        response = llm_mistral.invoke(validator_prompt)
         content = response.content.strip()
         
         # Try to extract JSON from response
@@ -1490,6 +2043,7 @@ MACRO_TOOL_DESCRIPTIONS = {
     "get_economic_indicators": "FRED economic data (inflation, employment, GDP, rates). Pass 'general', 'inflation', 'employment', 'rates', or 'gdp' as input.",
     "get_fed_policy_info": "Federal Reserve policy indicators and current stance. No input needed.",
     "get_bond_yields": "US Treasury yield curve and bond data. No input needed.",
+    "get_market_risk": "Market risk premium data for CAPM and valuation. Pass country name (e.g., 'Japan', 'Brazil') or empty for global overview.",
     "search_recent_macro_news": "Breaking macro news from last 48 hours. Pass search query as input.",
     "get_fed_speeches": "Recent Fed speeches and communications. No input needed.",
     "get_latest_fomc_statement": "Latest FOMC meeting statement. No input needed."
@@ -1500,6 +2054,7 @@ MACRO_TOOL_MAP = {
     "get_economic_indicators": get_economic_indicators,
     "get_fed_policy_info": get_fed_policy_info,
     "get_bond_yields": get_bond_yields,
+    "get_market_risk": get_market_risk,
     "search_recent_macro_news": search_recent_macro_news,
     "get_fed_speeches": get_fed_speeches,
     "get_latest_fomc_statement": get_latest_fomc_statement
@@ -1534,7 +2089,9 @@ Example response:
 Be conservative - only select tools that are truly needed. Maximum 4 tools."""
 
     try:
-        response = llm.invoke(tool_prompt)
+        # Use Mistral for fast, intelligent tool selection
+        print("🤖 Using Mistral AI for intelligent tool selection...")
+        response = llm_mistral.invoke(tool_prompt)
         content = response.content.strip()
         
         # Extract JSON from response
@@ -1588,7 +2145,17 @@ def analyze_stock_with_tools(ticker: str, company_name: str | None = None) -> st
             except Exception as e:
                 print(f"⚠️ Brave Search failed: {e}")
                 brave_sentiment = "Brave Search unavailable"
-        
+
+        # Fetch market risk premium for valuation context
+        print(f"📊 Fetching market risk premium for valuation...")
+        market_risk = ""
+        if fmp:  # Only if FMP API key is configured
+            try:
+                market_risk = get_market_risk.invoke("")
+            except Exception as e:
+                print(f"⚠️ Market risk premium fetch failed: {e}")
+                market_risk = "Market risk premium unavailable"
+
         # Create a comprehensive prompt for the LLM
         display_name = company_name or TICKER_TO_NAME.get(ticker)
         header = f"{display_name} ({ticker})" if display_name else ticker
@@ -1607,6 +2174,9 @@ Here is the data gathered for {header}:
 
 ## Web Sentiment (Brave Search)
 {brave_sentiment if brave_sentiment else "Not available"}
+
+## Market Risk Premium (for Valuation)
+{market_risk if market_risk else "Not available"}
 """
         
         prompt = f"""{STOCK_SYSTEM_PROMPT}
@@ -1627,9 +2197,55 @@ Provide your analysis following the structure outlined in the system prompt. Be 
 
 Be thorough, data-driven, and actionable."""
 
-        response = llm.invoke(prompt)
-        return response.content
-        
+        # Use Groq for comprehensive analysis synthesis
+        print("🚀 Using Groq OAI/gpt-oss-120b for comprehensive stock analysis synthesis...")
+        response = llm_groq.invoke(prompt)
+        analysis = response.content
+
+        # Validate output with MiMo-V2-Flash
+        validation_context = {
+            "ticker": ticker,
+            "displayName": display_name,
+            "userInput": ticker
+        }
+        validation_result = validate_analysis_output(analysis, validation_context, "stock")
+
+        # Get final polished analysis
+        final_analysis = validation_result.get("final_analysis", analysis)
+
+        # Add validation metadata as a footer if there are suggestions
+        if validation_result.get("suggestions") and len(validation_result["suggestions"]) > 0:
+            quality_badge = {
+                "excellent": "🌟",
+                "good": "✅",
+                "acceptable": "⚠️",
+                "poor": "❌"
+            }.get(validation_result.get("overall_quality", "good"), "✅")
+
+            final_analysis += f"\n\n---\n{quality_badge} **Analysis Quality:** {validation_result.get('overall_quality', 'good').title()}"
+
+        # Return dict with all versions for API transparency
+        original = validation_result.get("original_analysis") or analysis
+        validated = validation_result.get("validated_analysis") or analysis
+
+        print(f"📊 Analysis versions prepared:")
+        print(f"   - Final length: {len(final_analysis) if final_analysis else 0}")
+        print(f"   - Original length: {len(original) if original else 0}")
+        print(f"   - Validated length: {len(validated) if validated else 0}")
+
+        return {
+            "analysis": final_analysis,  # Main output (Flash 3 polished)
+            "original_analysis": original,  # GPT-OSS raw
+            "validated_analysis": validated,  # MiMo corrected
+            "validation_metadata": {
+                "overall_quality": validation_result.get("overall_quality"),
+                "confidence": validation_result.get("confidence"),
+                "issues": validation_result.get("issues", []),
+                "suggestions": validation_result.get("suggestions", []),
+                "strengths": validation_result.get("strengths", [])
+            }
+        }
+
     except Exception as e:
         return f"Error analyzing {ticker}: {str(e)}"
 
@@ -1694,6 +2310,9 @@ Please rephrase your question to focus on macroeconomic topics."""
         # Synthesize with LLM
         prompt = f"""{MACRO_SYSTEM_PROMPT}
 
+IMPORTANT: You already have ALL the data you need below. DO NOT attempt to call any tools or functions.
+Simply analyze the data and provide your response as plain text analysis.
+
 Here is the current macro data gathered from {len(tools_used)} data sources:
 {data_summary}
 
@@ -1705,14 +2324,73 @@ Based on this data, provide a comprehensive macro analysis including:
 3. **Market Implications**: How does this affect different asset classes?
 4. **Investment Positioning**: Recommended allocation or strategy
 
-Be concise but thorough."""
+Be concise but thorough. Respond with formatted analysis text only - no JSON, no tool calls."""
 
-        response = llm.invoke(prompt)
+        # Use Groq for comprehensive macro synthesis
+        print("🚀 Using Groq OAI/gpt-oss-120b for comprehensive macro analysis synthesis...")
+        response = llm_groq.invoke(prompt)
+        content = response.content
+
+        # Detect if LLM returned tool-call JSON instead of text analysis
+        if content and ('"name":' in content and '"arguments":' in content) or ('"tool":' in content and '"input":' in content):
+            print("⚠️ LLM returned tool-call format, retrying with explicit instruction...")
+            retry_prompt = f"""You already have all the data you need. DO NOT call any tools or output JSON.
+Synthesize the information and provide your analysis as plain formatted text.
+
+Data gathered:
+{data_summary}
+
+Question: {topic}
+
+Provide a direct, comprehensive answer based on the data above. Use markdown formatting for headers and lists."""
+            response = llm_groq.invoke(retry_prompt)
+            content = response.content
         
         # Add tools used for transparency
-        output = f"*Data sources: {', '.join(tools_used)}*\n\n{response.content}"
-        return output
-        
+        output = f"*Data sources: {', '.join(tools_used)}*\n\n{content}"
+
+        # Validate output with MiMo-V2-Flash
+        validation_context = {
+            "topic": topic
+        }
+        validation_result = validate_analysis_output(output, validation_context, "macro")
+
+        # Get final polished analysis
+        final_output = validation_result.get("final_analysis", output)
+
+        # Add validation metadata as a footer if there are suggestions
+        if validation_result.get("suggestions") and len(validation_result["suggestions"]) > 0:
+            quality_badge = {
+                "excellent": "🌟",
+                "good": "✅",
+                "acceptable": "⚠️",
+                "poor": "❌"
+            }.get(validation_result.get("overall_quality", "good"), "✅")
+
+            final_output += f"\n\n---\n{quality_badge} **Analysis Quality:** {validation_result.get('overall_quality', 'good').title()}"
+
+        # Return dict with all versions for API transparency
+        original = validation_result.get("original_analysis") or output
+        validated = validation_result.get("validated_analysis") or output
+
+        print(f"📊 Macro analysis versions prepared:")
+        print(f"   - Final length: {len(final_output) if final_output else 0}")
+        print(f"   - Original length: {len(original) if original else 0}")
+        print(f"   - Validated length: {len(validated) if validated else 0}")
+
+        return {
+            "analysis": final_output,  # Main output (Flash 3 polished)
+            "original_analysis": original,  # GPT-OSS raw
+            "validated_analysis": validated,  # MiMo corrected
+            "validation_metadata": {
+                "overall_quality": validation_result.get("overall_quality"),
+                "confidence": validation_result.get("confidence"),
+                "issues": validation_result.get("issues", []),
+                "suggestions": validation_result.get("suggestions", []),
+                "strengths": validation_result.get("strengths", [])
+            }
+        }
+
     except Exception as e:
         return f"Error analyzing macro topic: {str(e)}"
 
@@ -1760,17 +2438,36 @@ def analyze_stock():
             return jsonify({'error': f"Unable to find a ticker for '{user_query}'"}), 404
 
         company_name = TICKER_TO_NAME.get(resolved_ticker)
-        
-        # Run the stock analysis with tools
+
+        # Run the stock analysis with tools (returns dict with all versions)
         result = analyze_stock_with_tools(resolved_ticker, company_name)
-        
-        return jsonify({
-            'ticker': resolved_ticker,
-            'displayName': company_name,
-            'userInput': user_query,
-            'analysis': result,
-            'timestamp': datetime.now().isoformat()
-        })
+
+        # Handle both dict (new format) and string (fallback) responses
+        if isinstance(result, dict):
+            response_data = {
+                'ticker': resolved_ticker,
+                'displayName': company_name,
+                'userInput': user_query,
+                'analysis': result.get('analysis'),  # Flash 3 polished final version
+                'originalAnalysis': result.get('original_analysis'),  # GPT-OSS raw
+                'validatedAnalysis': result.get('validated_analysis'),  # MiMo corrected
+                'validationMetadata': result.get('validation_metadata', {}),
+                'timestamp': datetime.now().isoformat()
+            }
+            print(f"📤 API Response - Stock Analysis:")
+            print(f"   - analysis: {len(response_data['analysis']) if response_data['analysis'] else 0} chars")
+            print(f"   - originalAnalysis: {len(response_data['originalAnalysis']) if response_data['originalAnalysis'] else 0} chars")
+            print(f"   - validatedAnalysis: {len(response_data['validatedAnalysis']) if response_data['validatedAnalysis'] else 0} chars")
+            return jsonify(response_data)
+        else:
+            # Fallback for string responses (error cases)
+            return jsonify({
+                'ticker': resolved_ticker,
+                'displayName': company_name,
+                'userInput': user_query,
+                'analysis': result,
+                'timestamp': datetime.now().isoformat()
+            })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1785,15 +2482,32 @@ def analyze_macro():
         
         if not topic:
             return jsonify({'error': 'No topic provided'}), 400
-        
-        # Run the macro analysis with tools
+
+        # Run the macro analysis with tools (returns dict with all versions)
         result = analyze_macro_with_tools(topic)
-        
-        return jsonify({
-            'topic': topic,
-            'analysis': result,
-            'timestamp': datetime.now().isoformat()
-        })
+
+        # Handle both dict (new format) and string (fallback) responses
+        if isinstance(result, dict):
+            response_data = {
+                'topic': topic,
+                'analysis': result.get('analysis'),  # Flash 3 polished final version
+                'originalAnalysis': result.get('original_analysis'),  # GPT-OSS raw
+                'validatedAnalysis': result.get('validated_analysis'),  # MiMo corrected
+                'validationMetadata': result.get('validation_metadata', {}),
+                'timestamp': datetime.now().isoformat()
+            }
+            print(f"📤 API Response - Macro Analysis:")
+            print(f"   - analysis: {len(response_data['analysis']) if response_data['analysis'] else 0} chars")
+            print(f"   - originalAnalysis: {len(response_data['originalAnalysis']) if response_data['originalAnalysis'] else 0} chars")
+            print(f"   - validatedAnalysis: {len(response_data['validatedAnalysis']) if response_data['validatedAnalysis'] else 0} chars")
+            return jsonify(response_data)
+        else:
+            # Fallback for string responses (error cases)
+            return jsonify({
+                'topic': topic,
+                'analysis': result,
+                'timestamp': datetime.now().isoformat()
+            })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1917,7 +2631,12 @@ def get_chart_data(ticker):
 
 if __name__ == '__main__':
     print("🚀 Starting Agentic Financial Analysis Server...")
-    print("📊 Stock Analysis Agent: Ready")
+    print("\n🤖 TRI-LLM ARCHITECTURE:")
+    print("   ├─ Mistral AI: Input Validation & Routing")
+    print("   ├─ Groq OAI/gpt-oss-120b: Analysis Synthesis")
+    print("   └─ MiMo-V2-Flash: Output Validation with Reasoning")
+    print("\n📊 Stock Analysis Agent: Ready")
     print("🌍 Macro Analysis Agent: Ready")
+    print("\n💡 Full validation pipeline: Input → Analysis → Output")
     print("🔗 Server running at http://localhost:5090")
-    app.run(debug=True, port=5090)
+    app.run(debug=True, port=5091)

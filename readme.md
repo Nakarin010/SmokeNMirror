@@ -1,25 +1,32 @@
 # SmokeNMirror - Agentic Financial Analysis Platform
 
-A modern web-based AI-powered financial analysis platform that combines LangChain agents with real-time market data, technical indicators, and interactive TradingView charts to provide comprehensive stock and macroeconomic analysis.
+A modern web-based AI-powered financial analysis platform featuring a **Quad-LLM quality pipeline** that combines LangChain agents with real-time market data, technical indicators, and interactive TradingView charts to provide comprehensive, professionally-polished stock and macroeconomic analysis.
 
 ## 🎯 Project Overview
 
 SmokeNMirror is a sophisticated full-stack financial analysis application featuring:
 
-- **🤖 AI-Powered Analysis**: LangChain agents using Groq's Llama-4 for intelligent market insights
+- **🤖 Quad-LLM Architecture**: 4-stage quality pipeline for virtually free, professional-grade analysis
+  - **Stage 1**: Mistral AI for input validation & tool selection (~$0.0003)
+  - **Stage 2**: Groq GPT-OSS for deep analysis synthesis (FREE)
+  - **Stage 3**: MiMo-V2-Flash for output validation with reasoning (FREE)
+  - **Stage 4**: Google AI Flash 3 for professional polish (virtually FREE)
 - **📊 Interactive Web Interface**: Modern, responsive UI with dark/light themes and smooth animations
-- **📈 Real-Time Data Integration**: Multiple APIs (Yahoo Finance, FRED, Finnhub, Polygon) for comprehensive data
+- **📈 Real-Time Data Integration**: Multiple APIs (Yahoo Finance, FRED, Finnhub, Polygon, FMP) for comprehensive data
 - **📉 Advanced Charting**: TradingView Lightweight Charts for professional-grade visualization
 - **🔄 Dual Analysis Modes**: Individual stock analysis and global macroeconomic outlook
-- **🚀 Planned Enhancements**: True agentic systems, portfolio dashboard, and advanced risk metrics
+- **✨ Transparent Validation**: Access to raw, validated, and polished analysis versions via API
+- **💰 Cost-Effective**: ~$0.0003 per analysis (essentially FREE)
 
 ## 📊 Current Features
 
 ### 🏢 Stock Analysis Suite
 - **Fundamental Metrics**: P/E, P/B, EV/EBITDA, ROE, Debt-to-Equity ratios
 - **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages (TA-Lib powered)
+- **Derivatives Data**: Put/Call Open Interest & Volume Ratios for options market sentiment
 - **Market Intelligence**: Multi-source news aggregation with sentiment analysis
 - **Interactive Charts**: TradingView candlestick charts with multiple timeframes
+- **Correlation Analysis**: Price return correlation matrix for portfolio analysis
 - **Smart Search**: Fuzzy ticker/company name matching with SEC database
 
 ### 🌍 Macro Economic Analysis
@@ -512,19 +519,25 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 ```env
-# AI/LLM API Keys
-groq=your_groq_api_key_here
+# Required - Quad-LLM Pipeline
+MISTRAL=your_mistral_api_key_here        # Stage 1: Input validation
+groq=your_groq_api_key_here              # Stage 2: Analysis synthesis
+OPENROUTER=your_openrouter_api_key_here  # Stage 3: Output validation
+GAI=your_google_ai_studio_key_here       # Stage 4: Final polish
 
-# Financial Data API Keys (at least FRED required)
+# Required - Financial Data
 FRED_API=your_fred_api_key_here
 
-# Optional: Additional data sources
+# Optional - Enhanced Features
 POLYGON=your_polygon_api_key_here
 finhub=your_finnhub_api_key_here
+FMP=your_fmp_api_key_here                # Financial Modeling Prep
+BRAVE=your_brave_api_key_here            # Brave Search sentiment
 
-# Legacy (not actively used but can be configured)
-OPENAI_KEY=your_openai_api_key_here
-MISTRAL=your_mistral_api_key_here
+# Optional - Rate Limiting Config
+GOOGLE_GENAI_MIN_INTERVAL=2.0            # Seconds between Google API calls
+GOOGLE_GENAI_MAX_RETRIES=3
+GOOGLE_GENAI_BACKOFF_BASE=1.5
 ```
 
 ### 5. Verify Installation
@@ -536,10 +549,22 @@ python -c "import talib; print(talib.__version__)"
 
 ## Getting API Keys
 
-### Required
+### Required (Quad-LLM Pipeline)
+- **Mistral AI** (Free tier): https://console.mistral.ai/
+  - Used for input validation and tool selection
+  - 1M tokens/month on free tier
+
 - **Groq** (Free): https://console.groq.com/
-  - Used for AI-powered analysis
-  - Sign up and create an API key
+  - Used for main analysis synthesis (GPT-OSS-120B)
+  - Generous free tier limits
+
+- **OpenRouter** (Free): https://openrouter.ai/
+  - Used for output validation (MiMo-V2-Flash is FREE)
+  - Sign up and create API key
+
+- **Google AI Studio** (Free): https://aistudio.google.com/
+  - Used for final polish (Gemini Flash 3)
+  - 1500 requests per day on free tier
 
 - **FRED** (Free): https://fred.stlouisfed.org/docs/api/api_key.html
   - Federal Reserve Economic Data
@@ -583,6 +608,7 @@ You should see:
    - Click "Analyze Stock" to get comprehensive analysis
    - View the interactive chart with different timeframes
    - Read AI-generated insights on valuation, technicals, and fundamentals
+   - **New**: Access raw, validated, and polished versions of analysis via response metadata
 
 3. **Macro Analysis**:
    - Switch to "Macro Outlook" tab
@@ -590,7 +616,13 @@ You should see:
    - Click "Analyze Macro" for detailed economic analysis
    - Review key indicators, policy outlook, and market implications
 
-4. **Customization**:
+4. **Correlation Analysis**:
+   - Use the correlation matrix API to analyze portfolio diversification
+   - Input multiple tickers to see price return correlations
+   - Understand relationships between different assets
+   - Plan better portfolio allocation strategies
+
+5. **Customization**:
    - Toggle dark/light mode with the theme button
    - Expand/collapse analysis sections
    - Change chart timeframes
@@ -614,10 +646,17 @@ Response:
   "ticker": "AAPL",
   "displayName": "Apple Inc.",
   "userInput": "apple",
-  "analysis": "📊 Fundamental Analysis for AAPL...",
-  "timestamp": "2025-11-29T10:30:00"
+  "analysis": "📊 Fundamental Analysis for AAPL... (final polished version)",
+  "timestamp": "2025-11-29T10:30:00",
+  "validationStage": "... (Stage 3: MiMo validated analysis)",
+  "polishStage": "... (Stage 4: Gemini polished analysis)"
 }
 ```
+
+The response includes multiple analysis versions for transparency:
+- `analysis` - Final polished output (recommended for users)
+- `validationStage` - MiMo-validated version with corrections
+- Original raw output (available in validation metadata)
 
 ### Macro Analysis
 ```http
@@ -636,6 +675,19 @@ GET /api/chart/{ticker}?period=1y
 
 Periods: `1m`, `3m`, `6m`, `1y`, `2y`, `5y`
 
+### Correlation Matrix
+```http
+POST /api/correlation
+Content-Type: application/json
+
+{
+  "tickers": ["AAPL", "MSFT", "GOOGL"],
+  "period": "1y"
+}
+```
+
+Returns correlation matrix of price returns for portfolio analysis.
+
 ### Ticker Search
 ```http
 GET /api/tickers/search?q=apple
@@ -650,33 +702,68 @@ GET /api/tickers/search?q=apple
 
 ```
 SmokeNMirror/
-├── app.py                      # Flask backend with LangChain agents
+├── app.py                      # Flask backend with Quad-LLM agents (2642 lines)
 ├── index.html                  # Frontend web interface with TradingView
+├── styles.css                  # Modern UI styling with themes
 ├── company_tickers.json        # SEC company ticker database (~8MB)
 ├── requirements.txt            # Python dependencies (27 packages)
-├── styles.css                  # Modern UI styling with themes
+├── .env                        # Environment variables (API keys)
+├── CLAUDE.md                   # Claude Code guidance documentation
 ├── readme.md                   # This comprehensive documentation
 ├── MACRO_IMPROVEMENT_PLAN.md   # Detailed roadmap for macro enhancements
+├── TRI_LLM_SETUP.md            # Tri-LLM (now Quad-LLM) setup guide
+├── MISTRAL_INTEGRATION.md      # Mistral AI integration details
+├── OUTPUT_VALIDATION.md        # Output validation documentation
+├── IMPLEMENTATION_SUMMARY.md   # Implementation summary
 ├── improvement.md              # Portfolio dashboard implementation plan
+├── toimprove.txt               # TODO list for future features
 ├── test.py                     # Basic functionality tests
+├── test_comprehensive.py       # Comprehensive system tests
 ├── vercel.json                 # Deployment configuration
 ├── visualize.md                # Architecture visualization notes
-├── __pycache__/                # Python bytecode cache
-└── .env                        # Environment variables (API keys)
+├── .cursor/                    # Cursor IDE commands
+│   └── commands/
+│       ├── visualize.md        # Mermaid diagram generation
+│       └── plan.md             # Implementation planning
+└── __pycache__/                # Python bytecode cache
 ```
 
 ## Configuration
 
 ### LLM Settings
-The application uses Groq's Llama-4 model with conservative settings for accuracy:
+The application uses a **Quad-LLM architecture** with specialized models for each stage:
 
+**Stage 1 - Mistral AI** (Input Validation & Tool Selection):
 ```python
-llm = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct",
-    temperature=0.1,        # Low temperature for consistent analysis
-    max_tokens=2048,        # Sufficient for detailed analysis
+llm_mistral = ChatMistralAI(
+    model="mistral-large-latest",
+    temperature=0.1,
+    api_key=mistral_key
+)
+```
+
+**Stage 2 - Groq GPT-OSS** (Analysis Synthesis):
+```python
+llm_groq = ChatGroq(
+    model="openai/gpt-oss-120b",
+    temperature=0.2,        # Slightly higher for creative synthesis
+    api_key=groqK,
     max_retries=3           # Auto-retry on failures
 )
+```
+
+**Stage 3 - MiMo-V2-Flash** (Output Validation via OpenRouter):
+```python
+# Uses OpenRouter API with reasoning enabled
+model="xiaomi/mimo-v2-flash:free"
+extra_body={"reasoning": {"enabled": True}}
+```
+
+**Stage 4 - Google Gemini Flash 3** (Final Polish):
+```python
+# Uses Google GenAI with rate limiting
+model="gemini-3-flash-preview"
+# Min 2s interval between calls
 ```
 
 ### Data Consistency
@@ -702,10 +789,14 @@ The app will use fallback calculations for basic indicators.
 ## 📈 Performance & Monitoring
 
 ### Current Performance Metrics
-- **Response Times**: 5-15 seconds for initial analysis (data fetching dependent)
+- **Response Times**: 6-10 seconds for complete analysis (4-stage LLM pipeline + data fetching)
+  - Stage 1 (Mistral validation): ~0.5s
+  - Stage 2 (Groq synthesis): ~4s
+  - Stage 3 (MiMo validation): ~2s
+  - Stage 4 (Gemini polish): ~1-2s
 - **Concurrent Users**: Flask dev server supports 1 request at a time
 - **Data Freshness**: Market data delayed 15-20 minutes
-- **Error Rate**: <2% with comprehensive error handling
+- **Error Rate**: <2% with comprehensive error handling across all stages
 
 ### API Rate Limits & Quotas
 | Service | Limit | Usage | Notes |
@@ -714,7 +805,10 @@ The app will use fallback calculations for basic indicators.
 | FRED API | 120/minute | Low | Economic data |
 | Finnhub | 60/minute | Medium | News aggregation |
 | Polygon | Varies | Low | Alternative data |
-| Groq AI | Generous | Low | Llama-4 inference |
+| Mistral AI | 1M tokens/month (free) | Very Low | Input validation |
+| Groq AI | Generous (free) | Medium | GPT-OSS-120B synthesis |
+| OpenRouter | Unlimited (MiMo free) | Medium | Output validation |
+| Google GenAI | 1500 RPD (free) | Low | Gemini Flash 3 polish |
 
 ### Planned Optimizations
 - **Intelligent Caching**: 70%+ reduction in API calls
@@ -867,7 +961,12 @@ For production deployment:
 
 ## Contributing
 
-Contributions are welcome! Areas for improvement:
+Contributions are welcome! Before contributing, please review:
+- **CLAUDE.md** - Architecture guidance and development patterns for this codebase
+- **MACRO_IMPROVEMENT_PLAN.md** - Planned macro analysis improvements
+- **toimprove.txt** - Current TODO list and feature priorities
+
+Areas for improvement:
 - Additional data sources and APIs
 - Enhanced technical indicators
 - UI/UX improvements
@@ -885,22 +984,26 @@ This project is for educational and research purposes. Not intended as financial
 
 ## 🎯 Development Status & Roadmap
 
-### ✅ Current Status (v1.0)
-- **Stock Analysis**: Fully functional with comprehensive metrics
-- **Macro Analysis**: Working but being upgraded to agentic system
+### ✅ Current Status (v1.5)
+- **Quad-LLM Pipeline**: Complete 4-stage quality assurance system operational
+- **Stock Analysis**: Fully functional with comprehensive metrics + derivatives data (Put/Call ratios)
+- **Macro Analysis**: Intelligent tool selection with Mistral AI validation
+- **Correlation Analysis**: Portfolio correlation matrix for diversification analysis
+- **Output Transparency**: Access to raw, validated, and polished analysis versions
 - **UI/UX**: Modern, responsive interface with dark/light themes
-- **Data Integration**: Robust API connections with error handling
-- **Performance**: Optimized for development environment
+- **Data Integration**: Robust API connections with error handling across all stages
+- **Performance**: 6-10s response time with complete validation pipeline
 
 ### 🚧 In Progress (Q1 2025)
-- **Macro Agent Upgrade**: Converting to true ReAct agent system
-- **Web Search Integration**: Real-time news and Fed communications
-- **Intelligent Caching**: TTL-based cache layer implementation
+- **Intelligent Caching**: TTL-based cache layer implementation (70%+ API reduction)
 - **Conversation Memory**: Multi-turn conversation support
+- **Implied Volatility**: Options IV analysis for earnings announcements
+- **Directional Volume**: Trading volume analysis for market sentiment
 
 ### 📅 Next Phase (Q2 2025)
-- **Portfolio Dashboard**: Risk/return metrics and optimization
-- **Advanced Visualizations**: Interactive charts and gauges
+- **Portfolio Dashboard**: Risk/return metrics (Sharpe, Sortino, VaR) and optimization
+- **Advanced Visualizations**: Interactive risk-return scatter plots and drawdown charts
+- **PDF Upload & Analysis**: NVIDIA NeMo Retriever integration for document parsing
 - **User Authentication**: Secure login and portfolio persistence
 - **Real-time Alerts**: Custom notification system
 

@@ -5,6 +5,11 @@ langchain-openai>=0.0.5
 langchain-mistralai>=0.0.1
 langchain-groq>=0.0.1
 
+# OpenRouter (output validation)
+openai>=1.0.0
+google-genai>=0.4.0
+
+
 # Financial Data APIs
 yahooquery>=2.3.0
 fredapi>=0.5.0
