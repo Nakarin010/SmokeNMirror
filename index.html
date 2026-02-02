@@ -65,6 +65,13 @@
                     <small>Interest rates, bonds, economy</small>
                 </div>
             </button>
+            <button class="tab-btn" data-tab="return-calculator">
+                <span class="tab-icon">💰</span>
+                <div>
+                    <div>Return Calculator</div>
+                    <small>Position returns with FX impact</small>
+                </div>
+            </button>
         </div>
 
         <!-- Stock Analysis Panel -->
@@ -194,6 +201,98 @@
             </div>
         </div>
 
+        <!-- Return Calculator Panel -->
+        <div id="return-calculator-panel" class="analysis-panel">
+            <div class="input-card calculator-card">
+                <div class="input-header">
+                    <div class="input-header-icon calculator-icon">💰</div>
+                    <div>
+                        <h3>Total Return Calculator</h3>
+                        <p>Calculate investment returns with FX impact (USDTHB)</p>
+                    </div>
+                </div>
+
+                <!-- Ticker Input -->
+                <div class="input-group">
+                    <label>Stock Ticker</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="calc-ticker" placeholder="e.g., AAPL, TSLA" maxlength="60" autocomplete="off">
+                    </div>
+                    <div class="suggestions-panel" id="calc-ticker-suggestions"></div>
+                </div>
+
+                <!-- Date Inputs -->
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Buy Date</label>
+                        <input type="date" id="buy-date" class="date-input">
+                    </div>
+                    <div class="input-group">
+                        <label>Sell Date</label>
+                        <input type="date" id="sell-date" class="date-input">
+                    </div>
+                </div>
+
+                <!-- Quantity -->
+                <div class="input-group">
+                    <label>Quantity (shares)</label>
+                    <select id="quantity-input" class="quantity-select">
+                        <!-- JavaScript will populate 1-100 -->
+                    </select>
+                </div>
+
+                <!-- Price Inputs (Auto-populated, Editable) -->
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Buy Price (USD)</label>
+                        <div class="price-input-wrapper">
+                            <input type="number" id="buy-price" placeholder="Auto-fetching..." step="0.01" min="0" class="price-input">
+                            <span class="price-indicator" id="buy-price-indicator">🔄</span>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Sell Price (USD)</label>
+                        <div class="price-input-wrapper">
+                            <input type="number" id="sell-price" placeholder="Auto-fetching..." step="0.01" min="0" class="price-input">
+                            <span class="price-indicator" id="sell-price-indicator">🔄</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FX Rate Inputs -->
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Buy Date FX Rate (USDTHB)</label>
+                        <input type="number" id="buy-fx-rate" placeholder="e.g., 33.5" step="0.01" min="0" class="fx-input">
+                    </div>
+                    <div class="input-group">
+                        <label>Sell Date FX Rate (USDTHB)</label>
+                        <input type="number" id="sell-fx-rate" placeholder="e.g., 34.2" step="0.01" min="0" class="fx-input">
+                    </div>
+                </div>
+
+                <button class="analyze-btn calculator-btn" id="calculate-btn">
+                    <span>💹</span>
+                    Calculate Return
+                </button>
+            </div>
+
+            <!-- Results Card -->
+            <div id="calculator-results" class="results-card calculator-results">
+                <div class="results-header">
+                    <div class="results-title">
+                        <h4 id="calc-results-title">Calculation Results</h4>
+                        <span class="results-badge calculator-badge">Return Analysis</span>
+                    </div>
+                    <span class="results-timestamp" id="calc-timestamp"></span>
+                </div>
+
+                <div class="results-content" id="calc-results-content">
+                    <!-- JavaScript will populate results using safe DOM methods -->
+                </div>
+            </div>
+        </div>
+
         <!-- Quick Stats -->
         <div class="quick-stats">
             <div class="stat-card" id="stat-fed-rate">
@@ -289,6 +388,7 @@
         const tabBtns = document.querySelectorAll('.tab-btn');
         const stockPanel = document.getElementById('stock-panel');
         const macroPanel = document.getElementById('macro-panel');
+        const returnCalculatorPanel = document.getElementById('return-calculator-panel');
         const stockTickerInput = document.getElementById('stock-ticker');
         const macroTopicInput = document.getElementById('macro-topic');
         const analyzeStockBtn = document.getElementById('analyze-stock-btn');
@@ -358,14 +458,26 @@
             btn.addEventListener('click', () => {
                 tabBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                
+
                 const tab = btn.dataset.tab;
+
+                // Hide all panels first
+                stockPanel.classList.remove('active');
+                macroPanel.classList.remove('active');
+                returnCalculatorPanel.classList.remove('active');
+
+                // Show the selected panel
                 if (tab === 'stock') {
                     stockPanel.classList.add('active');
-                    macroPanel.classList.remove('active');
-                } else {
+                } else if (tab === 'macro') {
                     macroPanel.classList.add('active');
-                    stockPanel.classList.remove('active');
+                } else if (tab === 'return-calculator') {
+                    returnCalculatorPanel.classList.add('active');
+                }
+
+                const correlationSection = document.querySelector(".correlation-section")
+                if (correlationSection) {
+                    correlationSection.style.display = (tab ==='return-calculator') ? 'none' : 'block';
                 }
             });
         });
@@ -1406,9 +1518,702 @@
             }, 500);
         });
 
+        // ============================================
+        // RETURN CALCULATOR FUNCTIONALITY
+        // ============================================
+
+        // HTML escape helper (for security)
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        // Create element with text content safely
+        function createElementWithText(tag, text, className) {
+            const el = document.createElement(tag);
+            if (className) el.className = className;
+            if (text) el.textContent = text;
+            return el;
+        }
+
+        // Populate quantity dropdown (1-100)
+        const quantitySelect = document.getElementById('quantity-input');
+        if (quantitySelect) {
+            for (let i = 1; i <= 100; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = i;
+                if (i === 10) option.selected = true;  // Default to 10
+                quantitySelect.appendChild(option);
+            }
+        }
+
+        // Calculator DOM elements
+        const calcTickerInput = document.getElementById('calc-ticker');
+        const calcTickerSuggestions = document.getElementById('calc-ticker-suggestions');
+        const buyDateInput = document.getElementById('buy-date');
+        const sellDateInput = document.getElementById('sell-date');
+        const buyPriceInput = document.getElementById('buy-price');
+        const sellPriceInput = document.getElementById('sell-price');
+        const buyPriceIndicator = document.getElementById('buy-price-indicator');
+        const sellPriceIndicator = document.getElementById('sell-price-indicator');
+        const calculateBtn = document.getElementById('calculate-btn');
+        const calculatorResults = document.getElementById('calculator-results');
+        const calcResultsContent = document.getElementById('calc-results-content');
+        const calcTimestamp = document.getElementById('calc-timestamp');
+        const calcResultsTitle = document.getElementById('calc-results-title');
+
+        let calcSuggestionTimer = null;
+        let calcAbortController = null;
+        let buyPriceOverridden = false;
+        let sellPriceOverridden = false;
+        let priceFetchTimer = null;
+
+        // Ticker autocomplete for calculator
+        if (calcTickerInput && calcTickerSuggestions) {
+            calcTickerInput.addEventListener('input', () => {
+                const value = calcTickerInput.value.trim();
+                if (value.length < 2) {
+                    calcTickerSuggestions.textContent = '';
+                    calcTickerSuggestions.classList.remove('visible');
+                    return;
+                }
+
+                clearTimeout(calcSuggestionTimer);
+                calcSuggestionTimer = setTimeout(() => fetchCalcTickerSuggestions(value), 200);
+            });
+
+            calcTickerInput.addEventListener('change', () => {
+                buyPriceOverridden = false;
+                sellPriceOverridden = false;
+                if (buyPriceInput) buyPriceInput.value = '';
+                if (sellPriceInput) sellPriceInput.value = '';
+                if (buyPriceIndicator) {
+                    buyPriceIndicator.textContent = '🔄';
+                    buyPriceIndicator.title = 'Auto-fetch';
+                }
+                if (sellPriceIndicator) {
+                    sellPriceIndicator.textContent = '🔄';
+                    sellPriceIndicator.title = 'Auto-fetch';
+                }
+            });
+        }
+
+        async function fetchCalcTickerSuggestions(query) {
+            if (calcAbortController) calcAbortController.abort();
+            calcAbortController = new AbortController();
+
+            try {
+                const response = await fetch(`${API_BASE}/api/tickers/search?q=${encodeURIComponent(query)}`, {
+                    signal: calcAbortController.signal
+                });
+                const suggestions = await response.json();
+                renderCalcTickerSuggestions(suggestions);
+            } catch (error) {
+                if (error.name !== 'AbortError') console.error('Suggestion fetch error:', error);
+            }
+        }
+
+        function renderCalcTickerSuggestions(suggestions) {
+            if (!calcTickerSuggestions) return;
+            calcTickerSuggestions.textContent = '';
+
+            if (!suggestions || suggestions.length === 0) {
+                calcTickerSuggestions.classList.remove('visible');
+                return;
+            }
+
+            suggestions.forEach(s => {
+                const btn = document.createElement('button');
+                btn.className = 'suggestion-item';
+                btn.dataset.ticker = s.ticker;
+
+                const strong = document.createElement('strong');
+                strong.textContent = s.ticker;
+                btn.appendChild(strong);
+                btn.appendChild(document.createTextNode(' - ' + s.company));
+
+                btn.addEventListener('click', () => {
+                    calcTickerInput.value = s.ticker;
+                    calcTickerSuggestions.classList.remove('visible');
+                    fetchPricesForDates();
+                });
+
+                calcTickerSuggestions.appendChild(btn);
+            });
+
+            calcTickerSuggestions.classList.add('visible');
+        }
+
+        // Close calculator suggestions when clicking outside
+        if (calcTickerInput && calcTickerSuggestions) {
+            document.addEventListener('click', (event) => {
+                if (!calcTickerSuggestions.contains(event.target) && event.target !== calcTickerInput) {
+                    calcTickerSuggestions.classList.remove('visible');
+                }
+            });
+        }
+
+        // Track manual price edits
+        if (buyPriceInput) {
+            buyPriceInput.addEventListener('input', () => {
+                if (buyPriceInput.value) {
+                    buyPriceOverridden = true;
+                    if (buyPriceIndicator) {
+                        buyPriceIndicator.textContent = '✏️';
+                        buyPriceIndicator.title = 'Manually edited';
+                    }
+                }
+            });
+        }
+
+        if (sellPriceInput) {
+            sellPriceInput.addEventListener('input', () => {
+                if (sellPriceInput.value) {
+                    sellPriceOverridden = true;
+                    if (sellPriceIndicator) {
+                        sellPriceIndicator.textContent = '✏️';
+                        sellPriceIndicator.title = 'Manually edited';
+                    }
+                }
+            });
+        }
+
+        // Date validation setup
+        function setupDateValidation() {
+            if (!buyDateInput || !sellDateInput) return;
+            
+            // Set max date to today for both inputs
+            const today = new Date().toISOString().split('T')[0];
+            buyDateInput.setAttribute('max', today);
+            sellDateInput.setAttribute('max', today);
+            
+            // Set initial min for sell date (if buy date is already set)
+            if (buyDateInput.value) {
+                sellDateInput.setAttribute('min', buyDateInput.value);
+            }
+            
+            // When buy date changes, update sell date min and validate
+            buyDateInput.addEventListener('change', () => {
+                const buyDate = buyDateInput.value;
+                
+                // Validate date format
+                if (buyDate && !/^\d{4}-\d{2}-\d{2}$/.test(buyDate)) {
+                    showToast('Invalid date format', 'warning');
+                    buyDateInput.value = '';
+                    return;
+                }
+                
+                if (buyDate) {
+                    // Set sell date minimum to buy date
+                    sellDateInput.setAttribute('min', buyDate);
+                    
+                    // If sell date is before buy date, clear it
+                    if (sellDateInput.value && sellDateInput.value < buyDate) {
+                        sellDateInput.value = '';
+                        if (sellPriceInput) sellPriceInput.value = '';
+                        if (sellPriceIndicator) {
+                            sellPriceIndicator.textContent = '🔄';
+                            sellPriceIndicator.title = 'Auto-fetch';
+                        }
+                    }
+                } else {
+                    // Remove min constraint if buy date is cleared
+                    sellDateInput.removeAttribute('min');
+                }
+                
+                // Trigger price fetch
+                clearTimeout(priceFetchTimer);
+                priceFetchTimer = setTimeout(fetchPricesForDates, 500);
+            });
+            
+            // When sell date changes, validate it's not before buy date
+            sellDateInput.addEventListener('change', () => {
+                const sellDate = sellDateInput.value;
+                const buyDate = buyDateInput.value;
+                
+                // Validate date format
+                if (sellDate && !/^\d{4}-\d{2}-\d{2}$/.test(sellDate)) {
+                    showToast('Invalid date format', 'warning');
+                    sellDateInput.value = '';
+                    return;
+                }
+                
+                if (sellDate && buyDate && sellDate < buyDate) {
+                    showToast('Sell date must be after buy date', 'warning');
+                    sellDateInput.value = '';
+                    if (sellPriceInput) sellPriceInput.value = '';
+                    if (sellPriceIndicator) {
+                        sellPriceIndicator.textContent = '🔄';
+                        sellPriceIndicator.title = 'Auto-fetch';
+                    }
+                    return;
+                }
+                
+                // Trigger price fetch
+                clearTimeout(priceFetchTimer);
+                priceFetchTimer = setTimeout(fetchPricesForDates, 500);
+            });
+        }
+
+        async function fetchPricesForDates() {
+            if (!calcTickerInput || !buyDateInput || !sellDateInput) return;
+
+            const ticker = calcTickerInput.value.trim();
+            const buyDate = buyDateInput.value;
+            const sellDate = sellDateInput.value;
+
+            if (!ticker || !buyDate || !sellDate) return;
+
+            if (buyPriceIndicator) {
+                buyPriceIndicator.textContent = '🔄';
+                buyPriceIndicator.title = 'Fetching...';
+            }
+            if (sellPriceIndicator) {
+                sellPriceIndicator.textContent = '🔄';
+                sellPriceIndicator.title = 'Fetching...';
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/chart/${encodeURIComponent(ticker)}?period=2y`);
+                if (!response.ok) throw new Error('Failed to fetch prices');
+
+                const data = await response.json();
+                const candles = data.candles;
+
+                const buyCandle = candles.find(c => c.time >= buyDate) || candles[0];
+                const sellCandle = candles.slice().reverse().find(c => c.time <= sellDate) || candles[candles.length - 1];
+
+                if (!buyPriceOverridden && buyPriceInput && buyCandle) {
+                    buyPriceInput.value = buyCandle.close.toFixed(2);
+                    if (buyPriceIndicator) {
+                        buyPriceIndicator.textContent = '✓';
+                        buyPriceIndicator.title = 'Auto-fetched';
+                    }
+                }
+
+                if (!sellPriceOverridden && sellPriceInput && sellCandle) {
+                    sellPriceInput.value = sellCandle.close.toFixed(2);
+                    if (sellPriceIndicator) {
+                        sellPriceIndicator.textContent = '✓';
+                        sellPriceIndicator.title = 'Auto-fetched';
+                    }
+                }
+
+            } catch (error) {
+                console.error('Price fetch error:', error);
+                if (buyPriceIndicator) {
+                    buyPriceIndicator.textContent = '❌';
+                    buyPriceIndicator.title = 'Failed to fetch';
+                }
+                if (sellPriceIndicator) {
+                    sellPriceIndicator.textContent = '❌';
+                    sellPriceIndicator.title = 'Failed to fetch';
+                }
+            }
+        }
+
+        // Calculate button handler
+        if (calculateBtn) {
+            calculateBtn.addEventListener('click', async () => {
+                const ticker = calcTickerInput?.value.trim();
+                const buyDate = buyDateInput?.value;
+                const sellDate = sellDateInput?.value;
+                const quantity = parseInt(quantitySelect?.value || 1);
+                const buyPrice = buyPriceInput?.value ? parseFloat(buyPriceInput.value) : null;
+                const sellPrice = sellPriceInput?.value ? parseFloat(sellPriceInput.value) : null;
+                const buyFxRate = parseFloat(document.getElementById('buy-fx-rate')?.value || 0);
+                const sellFxRate = parseFloat(document.getElementById('sell-fx-rate')?.value || 0);
+
+                if (!ticker) {
+                    showToast('Please enter a stock ticker', 'warning');
+                    return;
+                }
+                if (!buyDate || !sellDate) {
+                    showToast('Please select both buy and sell dates', 'warning');
+                    return;
+                }
+                if (!buyFxRate || !sellFxRate) {
+                    showToast('Please enter both FX rates (USDTHB)', 'warning');
+                    return;
+                }
+                if (buyDate >= sellDate) {
+                    showToast('Sell date must be after buy date', 'warning');
+                    return;
+                }
+
+                setButtonLoading(calculateBtn, true);
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/calculate-return`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            ticker, buy_date: buyDate, sell_date: sellDate, quantity,
+                            buy_price: buyPrice, sell_price: sellPrice,
+                            buy_fx_rate: buyFxRate, sell_fx_rate: sellFxRate
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Calculation failed');
+                    }
+
+                    const data = await response.json();
+                    displayCalculationResults(data);
+                    if (calculatorResults) calculatorResults.classList.add('visible');
+                    showToast('Calculation complete', 'success');
+
+                } catch (error) {
+                    showToast(error.message, 'error');
+                    console.error('Calculate error:', error);
+                } finally {
+                    setButtonLoading(calculateBtn, false);
+                }
+            });
+        }
+
+        // Calculator Chart
+        let calcChart = null;
+        let calcLineSeries = null;
+
+        async function renderCalculatorChart(calcData) {
+            const chartContainer = document.getElementById('calculator-chart');
+            if (!chartContainer || !window.LightweightCharts) return;
+
+            // Reset container content if needed (but keep if it's the canvas)
+            // If chart exists, we reuse it. If container has text (loading/error), we clear it.
+            if (!calcChart) {
+                chartContainer.innerHTML = ''; 
+            }
+
+            // Determine suitable period based on buy date
+            // Default to 1y, but extend if buy date is older
+            const buyDate = new Date(calcData.buyDate);
+            const today = new Date();
+            const yearsDiff = (today - buyDate) / (1000 * 60 * 60 * 24 * 365);
+            
+            // Build period fallback list - try longer periods first, fallback to shorter
+            let periods = [];
+            if (yearsDiff > 5) periods = ['max', '5y', '2y', '1y'];
+            else if (yearsDiff > 2) periods = ['5y', '2y', '1y'];
+            else if (yearsDiff > 1) periods = ['2y', '1y'];
+            else periods = ['1y'];
+            
+            // Show loading if creating new chart or if we want to indicate activity
+            if (!calcChart) {
+                chartContainer.innerHTML = '<div class="chart-loading">Loading chart data...</div>';
+            }
+
+            let chartData = null;
+            let lastError = null;
+            let successfulPeriod = null;
+
+            // Try periods in order until one succeeds
+            for (const period of periods) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/chart/${encodeURIComponent(calcData.ticker)}?period=${period}`);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || `Failed to load chart data (${response.status})`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Validate data exists
+                    if (!data.candles || !Array.isArray(data.candles) || data.candles.length === 0) {
+                        throw new Error(`No data available for period ${period}`);
+                    }
+                    
+                    chartData = data;
+                    successfulPeriod = period;
+                    break; // Success, exit loop
+                    
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`Chart fetch failed for period ${period}:`, error.message);
+                    // Continue to next period
+                }
+            }
+
+            // If all periods failed, show error
+            if (!chartData) {
+                console.error('Calc chart error (all periods failed):', lastError);
+                let errorMsg = '⚠️ Chart unavailable';
+                if (lastError) {
+                    if (lastError.message.includes('404') || lastError.message.includes('No data')) {
+                        errorMsg = '⚠️ No historical data available for this ticker';
+                    } else if (lastError.message.includes('500')) {
+                        errorMsg = '⚠️ Server error loading chart data';
+                    } else {
+                        errorMsg = `⚠️ ${lastError.message}`;
+                    }
+                }
+                chartContainer.innerHTML = `<div class="chart-loading">${errorMsg}</div>`;
+                calcChart = null; // Reset so we try again next time
+                return;
+            }
+            
+            // Clear loading text if it was just added
+            if (!calcChart && chartContainer.querySelector('.chart-loading')) {
+                chartContainer.innerHTML = '';
+            }
+            
+            // Initialize chart if not exists
+            if (!calcChart) {
+                // Use calculator theme colors
+                const isLight = document.body.classList.contains('light-mode');
+                const textColor = isLight ? '#333333' : '#a0a0b0';
+                
+                calcChart = LightweightCharts.createChart(chartContainer, {
+                    layout: {
+                        background: { type: 'solid', color: 'transparent' }, 
+                        textColor: textColor,
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(212, 162, 127, 0.1)' },
+                        horzLines: { color: 'rgba(212, 162, 127, 0.1)' },
+                    },
+                    width: chartContainer.clientWidth,
+                    height: 320,
+                    timeScale: {
+                        borderColor: 'rgba(212, 162, 127, 0.2)',
+                        timeVisible: true,
+                    },
+                    rightPriceScale: {
+                        borderColor: 'rgba(212, 162, 127, 0.2)',
+                    },
+                    handleScroll: { vertTouchDrag: false },
+                });
+
+                calcLineSeries = calcChart.addAreaSeries({
+                    topColor: 'rgba(212, 162, 127, 0.5)',
+                    bottomColor: 'rgba(212, 162, 127, 0.05)',
+                    lineColor: 'rgba(212, 162, 127, 1)',
+                    lineWidth: 2,
+                });
+                
+                // Handle resize
+                const resizeObserver = new ResizeObserver(entries => {
+                     if (entries.length === 0 || !entries[0].contentRect) return;
+                     const { width } = entries[0].contentRect;
+                     if (calcChart) calcChart.applyOptions({ width });
+                });
+                resizeObserver.observe(chartContainer);
+            }
+
+            // Prepare data with safety checks
+            const areaData = chartData.candles
+                .filter(c => c && c.time && typeof c.close === 'number' && !isNaN(c.close))
+                .map(c => ({
+                    time: c.time,
+                    value: c.close
+                }))
+                .sort((a, b) => new Date(a.time) - new Date(b.time)); // Ensure sorted
+            
+            // Final safety check
+            if (!areaData || areaData.length === 0) {
+                console.error('No valid data points after filtering');
+                chartContainer.innerHTML = '<div class="chart-loading">⚠️ No valid chart data available</div>';
+                calcChart = null;
+                return;
+            }
+            
+            try {
+                calcLineSeries.setData(areaData);
+                
+                // Find valid marker dates (closest available in data)
+                // Data is sorted by time ascending
+                const findClosest = (targetStr) => {
+                    const target = new Date(targetStr).getTime();
+                    if (isNaN(target)) return null;
+                    
+                    let best = null;
+                    let minDiff = Infinity;
+                    
+                    for (const p of areaData) {
+                        const pt = new Date(p.time).getTime();
+                        if (isNaN(pt)) continue;
+                        const diff = Math.abs(pt - target);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            best = p.time;
+                        }
+                    }
+                    return best;
+                };
+
+                const buyTime = findClosest(calcData.buyDate);
+                const sellTime = findClosest(calcData.sellDate);
+                
+                // Add markers
+                const markers = [];
+                
+                if (buyTime) {
+                    markers.push({
+                        time: buyTime,
+                        position: 'belowBar',
+                        color: '#22c55e', 
+                        shape: 'arrowUp',
+                        text: `Buy @ $${calcData.calculations.buyPrice.toLocaleString()}`
+                    });
+                }
+                
+                if (sellTime) {
+                    markers.push({
+                        time: sellTime,
+                        position: 'aboveBar',
+                        color: '#ef4444', 
+                        shape: 'arrowDown',
+                        text: `Sell @ $${calcData.calculations.sellPrice.toLocaleString()}`
+                    });
+                }
+                
+                calcLineSeries.setMarkers(markers);
+                
+                // Fit content to show slightly more than the trade period
+                calcChart.timeScale().fitContent();
+                
+            } catch (error) {
+                console.error('Error rendering chart data:', error);
+                chartContainer.innerHTML = '<div class="chart-loading">⚠️ Error rendering chart</div>';
+                calcChart = null;
+            }
+        }
+
+        function displayCalculationResults(data) {
+            if (!calcResultsContent || !calcResultsTitle || !calcTimestamp) return;
+
+            // Cleanup existing chart if any
+            if (calcChart) {
+                try {
+                    calcChart.remove();
+                } catch(e) { console.warn('Chart cleanup error', e); }
+                calcChart = null;
+                calcLineSeries = null;
+            }
+
+            const calc = data.calculations;
+            const isPositiveUSD = calc.returnUSD >= 0;
+            const isPositiveTHB = calc.returnTHB >= 0;
+            const isPositiveFX = calc.fxImpactTHB >= 0;
+
+            calcResultsTitle.textContent = data.ticker + ' - ' + data.displayName;
+            calcTimestamp.textContent = new Date(data.timestamp).toLocaleString();
+            calcResultsContent.textContent = '';
+
+            // Position Summary
+            const summary = createElementWithText('div', '', 'calc-summary');
+            const summaryTitle = createElementWithText('h5', 'Position Summary');
+            const summaryLine1 = createElementWithText('p', '');
+            const tickerBold = createElementWithText('strong', data.ticker);
+            summaryLine1.appendChild(tickerBold);
+            summaryLine1.appendChild(document.createTextNode(' (' + data.displayName + ') • ' + data.quantity + ' shares'));
+            const summaryLine2 = createElementWithText('p', data.buyDate + ' → ' + data.sellDate);
+            summary.appendChild(summaryTitle);
+            summary.appendChild(summaryLine1);
+            summary.appendChild(summaryLine2);
+            calcResultsContent.appendChild(summary);
+
+            // Values Table
+            const tableDiv = createElementWithText('div', '', 'calc-values-table');
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const theadRow = document.createElement('tr');
+            theadRow.appendChild(createElementWithText('th', 'Currency'));
+            theadRow.appendChild(createElementWithText('th', 'Buy Value'));
+            theadRow.appendChild(createElementWithText('th', 'Sell Value'));
+            thead.appendChild(theadRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            const usdRow = document.createElement('tr');
+            usdRow.appendChild(createElementWithText('td', 'USD'));
+            usdRow.appendChild(createElementWithText('td', '$' + calc.buyValueUSD.toLocaleString()));
+            usdRow.appendChild(createElementWithText('td', '$' + calc.sellValueUSD.toLocaleString()));
+            tbody.appendChild(usdRow);
+
+            const thbRow = document.createElement('tr');
+            thbRow.appendChild(createElementWithText('td', 'THB (' + data.buyFxRate.toFixed(2) + ' → ' + data.sellFxRate.toFixed(2) + ')'));
+            thbRow.appendChild(createElementWithText('td', '฿' + calc.buyValueTHB.toLocaleString()));
+            thbRow.appendChild(createElementWithText('td', '฿' + calc.sellValueTHB.toLocaleString()));
+            tbody.appendChild(thbRow);
+
+            table.appendChild(tbody);
+            tableDiv.appendChild(table);
+            calcResultsContent.appendChild(tableDiv);
+
+            // Returns Section
+            const returns = createElementWithText('div', '', 'calc-returns');
+            returns.appendChild(createElementWithText('h5', 'Returns'));
+
+            // USD Return
+            const usdReturn = createElementWithText('div', '', 'return-item');
+            usdReturn.appendChild(createElementWithText('span', 'USD Return:'));
+            const usdValue = createElementWithText('strong',
+                (isPositiveUSD ? '+' : '') + '$' + calc.returnUSD.toLocaleString() +
+                ' (' + (isPositiveUSD ? '+' : '') + calc.returnPctUSD.toFixed(2) + '%)',
+                isPositiveUSD ? 'positive' : 'negative'
+            );
+            usdReturn.appendChild(usdValue);
+            returns.appendChild(usdReturn);
+
+            // THB Return
+            const thbReturn = createElementWithText('div', '', 'return-item');
+            thbReturn.appendChild(createElementWithText('span', 'THB Return:'));
+            const thbValue = createElementWithText('strong',
+                (isPositiveTHB ? '+' : '') + '฿' + calc.returnTHB.toLocaleString() +
+                ' (' + (isPositiveTHB ? '+' : '') + calc.returnPctTHB.toFixed(2) + '%)',
+                isPositiveTHB ? 'positive' : 'negative'
+            );
+            thbReturn.appendChild(thbValue);
+            returns.appendChild(thbReturn);
+
+            // FX Impact
+            const fxReturn = createElementWithText('div', '', 'return-item fx-impact');
+            fxReturn.appendChild(createElementWithText('span', 'FX Impact:'));
+            const fxValue = createElementWithText('strong',
+                (isPositiveFX ? '+' : '') + '฿' + calc.fxImpactTHB.toLocaleString() +
+                ' (' + (isPositiveFX ? '+' : '') + calc.fxImpactPct.toFixed(2) + '%)',
+                isPositiveFX ? 'positive' : 'negative'
+            );
+            fxReturn.appendChild(fxValue);
+            returns.appendChild(fxReturn);
+
+
+            calcResultsContent.appendChild(returns);
+
+            // Chart Section
+            const chartWrapper = document.createElement('div');
+            chartWrapper.id = 'calculator-chart-wrapper';
+            chartWrapper.className = 'calc-chart-section';
+            chartWrapper.innerHTML = `
+                <h5 class="calc-chart-title">Performance Visualization</h5>
+                <div id="calculator-chart" class="calc-chart-container">
+                    <div class="chart-loading">Loading chart data...</div>
+                </div>
+            `;
+            calcResultsContent.appendChild(chartWrapper);
+
+            // Trigger chart render
+            renderCalculatorChart(data);
+
+            // Price override note
+            if (data.buyPriceOverridden || data.sellPriceOverridden) {
+                const note = createElementWithText('p', '⚠️ Price(s) manually edited', 'price-note');
+                calcResultsContent.appendChild(note);
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            loadCompanyTickers();
             loadQuickStats();
+            setupDateValidation();
         });
     </script>
 </body>

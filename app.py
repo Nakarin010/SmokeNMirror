@@ -1356,6 +1356,108 @@ def get_market_risk(country: str = "") -> str:
         return f"❌ Error fetching market risk premium: {str(e)}"
 
 
+@tool
+def get_commodity_prices() -> str:
+    """
+    Fetch current commodity prices including gold, silver, copper, and other metals.
+    Essential for analyzing mining companies like Newmont, Barrick Gold, Freeport-McMoRan, etc.
+    Uses Yahoo Finance commodity futures data for real-time pricing.
+    
+    Returns:
+        Formatted commodity prices with % changes and market context
+    """
+    try:
+        # Commodity futures symbols on Yahoo Finance
+        commodities = {
+            'Gold (Troy Oz)': 'GC=F',
+            'Silver (Troy Oz)': 'SI=F', 
+            'Copper (Lb)': 'HG=F',
+            'Platinum (Troy Oz)': 'PL=F',
+            'Palladium (Troy Oz)': 'PA=F',
+            'WTI Crude Oil': 'CL=F',
+            'Natural Gas': 'NG=F'
+        }
+        
+        result = ["🏗️ Current Commodity Prices:\n"]
+        
+        for commodity_name, symbol in commodities.items():
+            try:
+                stock = yq.Ticker(symbol)
+                
+                # Get price data
+                hist = stock.history(period="5d", interval="1d")
+                if hist.empty:
+                    result.append(f"  • {commodity_name}: No data available")
+                    continue
+                
+                # Get latest price and calculate change
+                latest_price = None
+                price_change = 0.0
+                percent_change = 0.0
+                
+                if not hist.empty:
+                    latest_price = hist['close'].iloc[-1] if 'close' in hist.columns else None
+                    if len(hist) >= 2:
+                        prev_price = hist['close'].iloc[-2]
+                        price_change = latest_price - prev_price
+                        percent_change = (price_change / prev_price) * 100 if prev_price != 0 else 0.0
+                
+                # Format output
+                if latest_price is not None:
+                    # Special formatting for different commodities
+                    if 'Gold' in commodity_name or 'Silver' in commodity_name or 'Platinum' in commodity_name or 'Palladium' in commodity_name:
+                        price_str = f"${latest_price:,.2f}"
+                    elif 'Copper' in commodity_name:
+                        price_str = f"${latest_price:.4f}"
+                    elif 'Oil' in commodity_name or 'Gas' in commodity_name:
+                        price_str = f"${latest_price:.2f}"
+                    else:
+                        price_str = f"${latest_price:.2f}"
+                    
+                    # Add trend indicator
+                    trend = "📈" if percent_change > 1.0 else "📉" if percent_change < -1.0 else "➡️"
+                    change_str = f"{price_change:+.2f} ({percent_change:+.2f}%)"
+                    
+                    result.append(f"  • {commodity_name}: {price_str} {change_str} {trend}")
+                else:
+                    result.append(f"  • {commodity_name}: Price unavailable")
+                
+            except Exception as e:
+                result.append(f"  • {commodity_name}: Error fetching price ({str(e)[:50]})")
+        
+        # Add market context for gold specifically
+        try:
+            gold_stock = yq.Ticker('GC=F')
+            gold_hist = gold_stock.history(period="1y", interval="1d")
+            if not gold_hist.empty:
+                gold_current = gold_hist['close'].iloc[-1]
+                gold_52w_high = gold_hist['high'].max()
+                gold_52w_low = gold_hist['low'].min()
+                
+                result.append(f"\n📊 Gold Market Context:")
+                result.append(f"  • 52-Week Range: ${gold_52w_low:,.2f} - ${gold_52w_high:,.2f}")
+                
+                # Calculate position in range
+                range_position = ((gold_current - gold_52w_low) / (gold_52w_high - gold_52w_low)) * 100
+                result.append(f"  • Current Position in Range: {range_position:.1f}%")
+                
+                if range_position > 80:
+                    result.append("  • Status: Near 52-week high ✅")
+                elif range_position < 20:
+                    result.append("  • Status: Near 52-week low ⚠️")
+                else:
+                    result.append("  • Status: Mid-range")
+        except:
+            pass  # Skip context if unavailable
+            
+        result.append(f"\n💡 Note: Prices are real-time futures contracts. Mining companies' performance correlates strongly with these commodity prices.")
+        
+        return "\n".join(result)
+        
+    except Exception as e:
+        return f"❌ Error fetching commodity prices: {str(e)}"
+
+
 # ========== PRIORITY 3: WEB SEARCH TOOLS ==========
 
 @tool
@@ -1657,23 +1759,26 @@ def polish_with_flash3(original_analysis: str, validated_analysis: str, validati
 2. **Validation Feedback** (MiMo-V2-Flash corrections)
 
 **Original Analysis:**
-{original_analysis[:3000]}
+{original_analysis}
 
 **Validation Quality:** {validation_metadata.get('overall_quality', 'good')}
 **Issues Found:** {', '.join(validation_metadata.get('issues', [])) if validation_metadata.get('issues') else 'None'}
 **Suggestions:** {', '.join(validation_metadata.get('suggestions', [])) if validation_metadata.get('suggestions') else 'None'}
 
 **Validated/Corrected Version:**
-{validated_analysis[:3000]}
+{validated_analysis}
 
 **Instructions:**
-1. Merge the best parts of both analyses
+1. Merge the best parts of both analyses while PRESERVING ALL important content
 2. Fix any factual errors or logical inconsistencies identified
 3. Apply the validation suggestions
 4. Maintain professional financial writing tone
 5. Keep the structure clear and scannable
-6. Remove redundancy and improve clarity
+6. Remove redundancy and improve clarity while MAINTAINING comprehensive coverage
 7. Ensure actionable insights are prominent
+8. DO NOT shorten or truncate - preserve the comprehensive nature of the analysis
+
+**CRITICAL: The final output should be as comprehensive as the input analyses. Do not condense or summarize - polish and refine while maintaining full detail.**
 
 **Output a clean, polished final analysis that a professional would deliver to clients.**
 Do not include meta-commentary about the editing process. Just deliver the final analysis.
@@ -1761,7 +1866,7 @@ def validate_analysis_output(
 4. **Clarity**: Is the analysis clear and actionable?
 
 ANALYSIS TO VALIDATE:
-{analysis[:2000]}
+{analysis}
 
 CONTEXT DATA:
 - Ticker: {ticker}
@@ -1787,7 +1892,7 @@ Provide your validation in JSON format:
 4. **Market Implications**: Are investment recommendations reasonable?
 
 ANALYSIS TO VALIDATE:
-{analysis[:2000]}
+{analysis}
 
 CONTEXT:
 - Topic: {topic}
@@ -1991,24 +2096,29 @@ def validate_macro_question(question: str) -> dict:
             "reasoning": str
         }
     """
+    # Handle common typos like "Marco" instead of "Macro"
+    clean_question = question.replace("Marco", "Macro").replace("marco", "macro")
+    
     validator_prompt = f"""You are a macro economics question validator.
 
 Analyze if this question can be answered with macro economic data:
-- Federal Reserve policy
-- Economic indicators (inflation, employment, GDP)
-- Bond yields and interest rates
-- General economic outlook
-- Recent Fed speeches and FOMC statements
+- Central bank policy (Federal Reserve, ECB, etc.)
+- Economic indicators (inflation, employment, GDP, PMI)
+- Bond yields, interest rates, and currency markets
+- General economic outlook for countries or regions (e.g., US, China, Venezuela, Thailand)
+- Global trade and geopolitical economic impacts
+
+Note: If the user asks for a "Marco outlook", they mean "Macro outlook".
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
 {{
     "is_valid": true or false,
     "question_type": "macro_policy" or "economic_data" or "market_outlook" or "off_topic",
-    "required_data": ["fed_policy", "inflation", "yields", "employment", "gdp", "news"],
+    "required_data": ["fed_policy", "inflation", "yields", "employment", "gdp", "news", "global_macro"],
     "reasoning": "brief explanation"
 }}
 
-Question: {question}"""
+Question: {clean_question}"""
 
     try:
         # Use Mistral for fast, cost-effective validation
@@ -2156,9 +2266,28 @@ def analyze_stock_with_tools(ticker: str, company_name: str | None = None) -> st
                 print(f"⚠️ Market risk premium fetch failed: {e}")
                 market_risk = "Market risk premium unavailable"
 
+        # Check if this is a mining/commodity company and fetch commodity prices
+        commodity_prices = ""
+        mining_companies = ['NEM', 'GOLD', 'AUY', 'KGC', 'FCX', 'SCCO', 'AA', 'X', 'CLF', 'VALE', 'RIO', 'BHP', 
+                           'NEWMONT', 'BARRICK', 'FREEPORT', 'ALCOA', 'NEWCREST', 'ANGLO', 'GLENCORE']
+        company_lower = (company_name or "").lower()
+        
+        is_mining_company = (ticker.upper() in mining_companies or 
+                           any(keyword in company_lower for keyword in ['mining', 'gold', 'silver', 'copper', 'metal', 'mineral']))
+        
+        if is_mining_company:
+            print(f"🏗️ Detected mining/commodity company - fetching commodity prices...")
+            try:
+                commodity_prices = get_commodity_prices.invoke("")
+            except Exception as e:
+                print(f"⚠️ Commodity prices fetch failed: {e}")
+                commodity_prices = "Commodity prices unavailable"
+
         # Create a comprehensive prompt for the LLM
         display_name = company_name or TICKER_TO_NAME.get(ticker)
         header = f"{display_name} ({ticker})" if display_name else ticker
+
+        commodity_section = f"\n## Commodity Prices (Key for Mining Operations)\n{commodity_prices}" if commodity_prices else ""
 
         data_summary = f"""
 Here is the data gathered for {header}:
@@ -2176,7 +2305,7 @@ Here is the data gathered for {header}:
 {brave_sentiment if brave_sentiment else "Not available"}
 
 ## Market Risk Premium (for Valuation)
-{market_risk if market_risk else "Not available"}
+{market_risk if market_risk else "Not available"}{commodity_section}
 """
         
         prompt = f"""{STOCK_SYSTEM_PROMPT}
@@ -2253,9 +2382,12 @@ Be thorough, data-driven, and actionable."""
 def analyze_macro_with_tools(topic: str) -> str:
     """Analyze macro conditions using ReAct agent with validation."""
     try:
+        # Handle common typos like "Marco" instead of "Macro"
+        clean_topic = topic.replace("Marco", "Macro").replace("marco", "macro")
+        
         # ========== PRIORITY 1: Validate question first ==========
-        print(f"🔍 Validating question: {topic}")
-        validation = validate_macro_question(topic)
+        print(f"🔍 Validating question: {clean_topic}")
+        validation = validate_macro_question(clean_topic)
         
         if not validation.get("is_valid", True):
             return f"""⚠️ **Off-Topic Question Detected**
@@ -2278,7 +2410,7 @@ Please rephrase your question to focus on macroeconomic topics."""
         
         # ========== PRIORITY 2: LLM-Based Tool Selection ==========
         print("🤖 Selecting tools for question...")
-        selected_tools = select_tools_for_question(topic, validation)
+        selected_tools = select_tools_for_question(clean_topic, validation)
         print(f"🔧 Selected tools: {[t[0] for t in selected_tools]}")
         
         # Execute selected tools and gather data
@@ -2316,7 +2448,7 @@ Simply analyze the data and provide your response as plain text analysis.
 Here is the current macro data gathered from {len(tools_used)} data sources:
 {data_summary}
 
-User's question/topic: {topic}
+User's question/topic: {clean_topic}
 
 Based on this data, provide a comprehensive macro analysis including:
 1. **Current Economic Conditions**: Summary of key indicators
@@ -2340,7 +2472,7 @@ Synthesize the information and provide your analysis as plain formatted text.
 Data gathered:
 {data_summary}
 
-Question: {topic}
+Question: {clean_topic}
 
 Provide a direct, comprehensive answer based on the data above. Use markdown formatting for headers and lists."""
             response = llm_groq.invoke(retry_prompt)
@@ -2351,7 +2483,7 @@ Provide a direct, comprehensive answer based on the data above. Use markdown for
 
         # Validate output with MiMo-V2-Flash
         validation_context = {
-            "topic": topic
+            "topic": clean_topic
         }
         validation_result = validate_analysis_output(output, validation_context, "macro")
 
@@ -2629,6 +2761,125 @@ def get_chart_data(ticker):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/calculate-return', methods=['POST'])
+def calculate_return():
+    """Calculate total return with FX impact."""
+    try:
+        data = request.get_json()
+
+        # Extract and validate inputs
+        ticker = data.get('ticker', '').strip().lstrip('$').upper()
+        buy_date = data.get('buy_date')  # 'YYYY-MM-DD'
+        sell_date = data.get('sell_date')  # 'YYYY-MM-DD'
+        quantity = int(data.get('quantity', 1))
+        buy_fx_rate = float(data.get('buy_fx_rate', 0))
+        sell_fx_rate = float(data.get('sell_fx_rate', 0))
+        buy_price_override = data.get('buy_price')  # None or float
+        sell_price_override = data.get('sell_price')  # None or float
+
+        # Validation
+        if not ticker:
+            return jsonify({'error': 'No ticker provided'}), 400
+        if not buy_date or not sell_date:
+            return jsonify({'error': 'Both buy and sell dates required'}), 400
+        if buy_fx_rate <= 0 or sell_fx_rate <= 0:
+            return jsonify({'error': 'FX rates must be positive'}), 400
+        if quantity < 1 or quantity > 100:
+            return jsonify({'error': 'Quantity must be 1-100'}), 400
+
+        # Resolve ticker to company name
+        resolved_ticker = resolve_ticker_symbol(ticker) or ticker
+        display_name = TICKER_TO_NAME.get(resolved_ticker, ticker)
+
+        # Fetch historical prices (if not overridden)
+        stock = yq.Ticker(resolved_ticker)
+        hist = stock.history(start=buy_date, end=sell_date, interval="1d")
+
+        if hist.empty:
+            return jsonify({'error': f'No historical data for {ticker}'}), 404
+
+        hist = hist.reset_index()
+
+        # Normalize dates for comparison - convert to date strings
+        hist['date_str'] = pd.to_datetime(hist['date']).dt.strftime('%Y-%m-%d')
+
+        # Get buy price (closest trading day to buy_date)
+        if buy_price_override:
+            buy_price = float(buy_price_override)
+            buy_price_overridden = True
+            buy_date_actual = buy_date
+        else:
+            # Find first trading day on/after buy_date
+            hist_buy = hist[hist['date_str'] >= buy_date]
+            if hist_buy.empty:
+                return jsonify({'error': f'No trading data on/after buy date {buy_date}'}), 404
+            buy_price = float(hist_buy.iloc[0]['close'])
+            buy_price_overridden = False
+            buy_date_actual = hist_buy.iloc[0]['date_str']
+
+        # Get sell price (closest trading day to sell_date)
+        if sell_price_override:
+            sell_price = float(sell_price_override)
+            sell_price_overridden = True
+            sell_date_actual = sell_date
+        else:
+            # Find first trading day on/before sell_date
+            hist_sell = hist[hist['date_str'] <= sell_date]
+            if hist_sell.empty:
+                return jsonify({'error': f'No trading data on/before sell date {sell_date}'}), 404
+            sell_price = float(hist_sell.iloc[-1]['close'])
+            sell_price_overridden = False
+            sell_date_actual = hist_sell.iloc[-1]['date_str']
+
+        # Calculate returns
+        buy_value_usd = quantity * buy_price
+        sell_value_usd = quantity * sell_price
+        return_usd = sell_value_usd - buy_value_usd
+        return_pct_usd = (return_usd / buy_value_usd * 100) if buy_value_usd else 0
+
+        # THB calculations with FX impact
+        buy_value_thb = buy_value_usd * buy_fx_rate
+        sell_value_thb = sell_value_usd * sell_fx_rate
+        return_thb = sell_value_thb - buy_value_thb
+        return_pct_thb = (return_thb / buy_value_thb * 100) if buy_value_thb else 0
+
+        # FX impact (what would THB return be if FX stayed constant?)
+        sell_value_thb_no_fx = sell_value_usd * buy_fx_rate
+        return_thb_no_fx = sell_value_thb_no_fx - buy_value_thb
+        fx_impact = return_thb - return_thb_no_fx
+        fx_impact_pct = (fx_impact / buy_value_thb * 100) if buy_value_thb else 0
+
+        return jsonify({
+            'ticker': resolved_ticker,
+            'displayName': display_name,
+            'buyDate': buy_date_actual,
+            'sellDate': sell_date_actual,
+            'quantity': quantity,
+            'buyPriceUSD': round(buy_price, 2),
+            'sellPriceUSD': round(sell_price, 2),
+            'buyPriceOverridden': buy_price_overridden,
+            'sellPriceOverridden': sell_price_overridden,
+            'buyFxRate': buy_fx_rate,
+            'sellFxRate': sell_fx_rate,
+            'calculations': {
+                'buyValueUSD': round(buy_value_usd, 2),
+                'sellValueUSD': round(sell_value_usd, 2),
+                'buyValueTHB': round(buy_value_thb, 2),
+                'sellValueTHB': round(sell_value_thb, 2),
+                'returnUSD': round(return_usd, 2),
+                'returnTHB': round(return_thb, 2),
+                'returnPctUSD': round(return_pct_usd, 2),
+                'returnPctTHB': round(return_pct_thb, 2),
+                'fxImpactTHB': round(fx_impact, 2),
+                'fxImpactPct': round(fx_impact_pct, 2)
+            },
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("🚀 Starting Agentic Financial Analysis Server...")
     print("\n🤖 TRI-LLM ARCHITECTURE:")
@@ -2638,5 +2889,5 @@ if __name__ == '__main__':
     print("\n📊 Stock Analysis Agent: Ready")
     print("🌍 Macro Analysis Agent: Ready")
     print("\n💡 Full validation pipeline: Input → Analysis → Output")
-    print("🔗 Server running at http://localhost:5090")
-    app.run(debug=True, port=5091)
+    print("🔗 Server running at http://localhost:5092")
+    app.run(debug=True, port=5092)
