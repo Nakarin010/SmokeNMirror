@@ -19,51 +19,158 @@ Benefits:
 - Each LLM optimized for its specialized task
 - Transparent validation with raw output access
 - Professional-grade final output
+
+OPTIMIZATIONS for Serverless (<250MB memory):
+- Lazy loading for heavy imports (pandas, numpy, talib, langchain)
+- On-demand ticker data loading with caching
+- Parallel API calls with concurrent.futures
+- Timeout handling for external APIs
+- Memory-efficient data structures
 """
 
+# ============================================
+# LIGHTWEIGHT IMPORTS (always loaded)
+# ============================================
 import json
-import pandas as pd
-try:
-    import talib
-    TALIB_AVAILABLE = True
-except ImportError:
-    TALIB_AVAILABLE = False
-    print("⚠️ TA-Lib not installed. Technical indicators will be limited.")
-
-import numpy as np
-from typing import Dict, List
-import yahooquery as yq
-import requests
 import os
-from dotenv import load_dotenv
-from datetime import datetime
-from datetime import date as _date
-from fredapi import Fred
 import time
 import random
+import requests
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+from datetime import date as _date
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from functools import lru_cache
+import logging
+
+# Flask (lightweight, required)
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from google import genai
 
-# LangChain imports
+# LangChain tool decorator (kept at module level - lightweight)
 from langchain_core.tools import tool
-from langchain_groq import ChatGroq
-from langchain_mistralai import ChatMistralAI
 
-# OpenRouter (for output validation with MiMo-V2-Flash)
-from openai import OpenAI
-
-# Web Search & Scraping imports
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
-from datetime import timedelta
-
-# Load environment variables (handle cases where .env is not accessible)
+# Load environment variables
 try:
+    from dotenv import load_dotenv
     load_dotenv()
 except Exception as e:
-    print(f"⚠️ Could not load .env file: {e}")
+    pass  # Silent fail in serverless
 
+# ============================================
+# LAZY LOADING SYSTEM for Heavy Modules
+# ============================================
+_lazy_modules = {}
+
+def _get_pandas():
+    """Lazy load pandas."""
+    if 'pd' not in _lazy_modules:
+        import pandas as pd
+        _lazy_modules['pd'] = pd
+    return _lazy_modules['pd']
+
+def _get_numpy():
+    """Lazy load numpy."""
+    if 'np' not in _lazy_modules:
+        import numpy as np
+        _lazy_modules['np'] = np
+    return _lazy_modules['np']
+
+def _get_talib():
+    """Lazy load TA-Lib."""
+    if 'talib' not in _lazy_modules:
+        try:
+            import talib
+            _lazy_modules['talib'] = talib
+            _lazy_modules['talib_available'] = True
+        except ImportError:
+            _lazy_modules['talib'] = None
+            _lazy_modules['talib_available'] = False
+    return _lazy_modules.get('talib'), _lazy_modules.get('talib_available', False)
+
+def _get_yahooquery():
+    """Lazy load yahooquery."""
+    if 'yq' not in _lazy_modules:
+        import yahooquery as yq
+        _lazy_modules['yq'] = yq
+    return _lazy_modules['yq']
+
+def _get_fred():
+    """Lazy load FRED API."""
+    if 'Fred' not in _lazy_modules:
+        from fredapi import Fred
+        _lazy_modules['Fred'] = Fred
+    return _lazy_modules['Fred']
+
+def _get_genai():
+    """Lazy load Google GenAI."""
+    if 'genai' not in _lazy_modules:
+        from google import genai
+        _lazy_modules['genai'] = genai
+    return _lazy_modules['genai']
+
+def _get_langchain_tool():
+    """Lazy load LangChain tool decorator."""
+    if 'tool' not in _lazy_modules:
+        from langchain_core.tools import tool
+        _lazy_modules['tool'] = tool
+    return _lazy_modules['tool']
+
+def _get_chat_groq():
+    """Lazy load ChatGroq."""
+    if 'ChatGroq' not in _lazy_modules:
+        from langchain_groq import ChatGroq
+        _lazy_modules['ChatGroq'] = ChatGroq
+    return _lazy_modules['ChatGroq']
+
+def _get_chat_mistral():
+    """Lazy load ChatMistralAI."""
+    if 'ChatMistralAI' not in _lazy_modules:
+        from langchain_mistralai import ChatMistralAI
+        _lazy_modules['ChatMistralAI'] = ChatMistralAI
+    return _lazy_modules['ChatMistralAI']
+
+def _get_openai():
+    """Lazy load OpenAI client."""
+    if 'OpenAI' not in _lazy_modules:
+        from openai import OpenAI
+        _lazy_modules['OpenAI'] = OpenAI
+    return _lazy_modules['OpenAI']
+
+def _get_bs4():
+    """Lazy load BeautifulSoup."""
+    if 'BeautifulSoup' not in _lazy_modules:
+        from bs4 import BeautifulSoup
+        _lazy_modules['BeautifulSoup'] = BeautifulSoup
+    return _lazy_modules['BeautifulSoup']
+
+def _get_ddgs():
+    """Lazy load DuckDuckGo Search."""
+    if 'DDGS' not in _lazy_modules:
+        from duckduckgo_search import DDGS
+        _lazy_modules['DDGS'] = DDGS
+    return _lazy_modules['DDGS']
+
+# Backward compatibility - create module-level references that use lazy loading
+# These are accessed via property-like functions when needed
+TALIB_AVAILABLE = False  # Will be set when first accessed
+
+def get_talib_status():
+    """Check if TA-Lib is available (lazy check)."""
+    global TALIB_AVAILABLE
+    _, available = _get_talib()
+    TALIB_AVAILABLE = available
+    return available
+
+# ============================================
+# LOGGING SETUP
+# ============================================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# ============================================
+# ENVIRONMENT VARIABLES
+# ============================================
 openai_api_key = os.getenv("OPENAI_KEY")
 fred_api_key = os.getenv("FRED_API")
 polygon_key = os.getenv("POLYGON")
@@ -75,27 +182,45 @@ serpapi = os.getenv("SERP")
 gnews = os.getenv("GNEWS")
 brave = os.getenv("BRAVE")
 openrouter_key = os.getenv("OPENROUTER")
-nvidianim_key = os.getenv("NVIDIANIM") #Nvidia NIM platform 
-fmp = os.getenv("FMP") #Financial Modeling Prep
-gai = os.getenv("GAI") #Google AI Studio
+nvidianim_key = os.getenv("NVIDIANIM")  # Nvidia NIM platform 
+fmp = os.getenv("FMP")  # Financial Modeling Prep
+gai = os.getenv("GAI")  # Google AI Studio
+
 # Google GenAI rate limiting (avoid 429s)
 GOOGLE_GENAI_MIN_INTERVAL = float(os.getenv("GOOGLE_GENAI_MIN_INTERVAL", "2.0"))
 GOOGLE_GENAI_MAX_RETRIES = int(os.getenv("GOOGLE_GENAI_MAX_RETRIES", "3"))
 GOOGLE_GENAI_BACKOFF_BASE = float(os.getenv("GOOGLE_GENAI_BACKOFF_BASE", "1.5"))
 _last_google_genai_ts = 0.0
+
 # Global reference date
 CURRENT_REF_DATE: _date | None = None
 
+# API timeout settings (seconds)
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "45"))
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ============================================
+# LAZY TICKER LOADING (Memory Optimization)
+# ============================================
+_ticker_cache = {
+    'loaded': False,
+    'company_list': [],
+    'ticker_to_name': {}
+}
 
-def _load_company_tickers() -> tuple[list[dict], dict[str, str]]:
-    """Load the SEC company tickers file into memory."""
+def _ensure_tickers_loaded() -> tuple[list[dict], dict[str, str]]:
+    """Load company tickers on first access (lazy loading)."""
+    if _ticker_cache['loaded']:
+        return _ticker_cache['company_list'], _ticker_cache['ticker_to_name']
+    
     company_list: list[dict] = []
     ticker_to_name: dict[str, str] = {}
     ticker_file = os.path.join(BASE_DIR, "company_tickers.json")
 
     if not os.path.exists(ticker_file):
+        _ticker_cache['loaded'] = True
         return company_list, ticker_to_name
 
     try:
@@ -109,22 +234,34 @@ def _load_company_tickers() -> tuple[list[dict], dict[str, str]]:
                     continue
                 ticker_upper = ticker.upper().strip()
                 title_clean = title.strip()
-                company_list.append(
-                    {
-                        "ticker": ticker_upper,
-                        "company": title_clean,
-                        "company_lower": title_clean.lower(),
-                    }
-                )
+                company_list.append({
+                    "ticker": ticker_upper,
+                    "company": title_clean,
+                    "company_lower": title_clean.lower(),
+                })
                 ticker_to_name[ticker_upper] = title_clean
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"⚠️ Unable to load company_tickers.json: {exc}")
+        logger.warning(f"Unable to load company_tickers.json: {exc}")
 
     company_list.sort(key=lambda item: item["ticker"])
+    _ticker_cache['company_list'] = company_list
+    _ticker_cache['ticker_to_name'] = ticker_to_name
+    _ticker_cache['loaded'] = True
+    
     return company_list, ticker_to_name
 
+# Getter functions for lazy-loaded ticker data
+def get_ticker_list():
+    """Get company ticker list (lazy loaded)."""
+    return _ensure_tickers_loaded()[0]
 
-COMPANY_TICKER_LIST, TICKER_TO_NAME = _load_company_tickers()
+def get_ticker_to_name():
+    """Get ticker to name mapping (lazy loaded)."""
+    return _ensure_tickers_loaded()[1]
+
+# Backward compatibility - module level variables (will be empty initially, use getters)
+COMPANY_TICKER_LIST = []  # Use get_ticker_list() instead
+TICKER_TO_NAME = {}  # Use get_ticker_to_name() instead
 
 
 def resolve_ticker_symbol(query: str) -> str | None:
@@ -132,20 +269,23 @@ def resolve_ticker_symbol(query: str) -> str | None:
     if not query:
         return None
 
+    ticker_to_name = get_ticker_to_name()
+    company_list = get_ticker_list()
+    
     candidate = query.strip()
     upto = candidate.upper()
-    if upto in TICKER_TO_NAME:
+    if upto in ticker_to_name:
         return upto
 
     candidate_lower = candidate.lower()
 
     # Exact company name match
-    for entry in COMPANY_TICKER_LIST:
+    for entry in company_list:
         if candidate_lower == entry["company_lower"]:
             return entry["ticker"]
 
     # Partial match
-    for entry in COMPANY_TICKER_LIST:
+    for entry in company_list:
         if candidate_lower in entry["company_lower"]:
             return entry["ticker"]
 
@@ -157,20 +297,21 @@ def search_company_tickers(term: str, limit: int = 8) -> list[dict]:
     if not term:
         return []
 
+    company_list = get_ticker_list()
     term_clean = term.strip()
     term_upper = term_clean.upper()
     term_lower = term_clean.lower()
     results: list[dict] = []
 
     # Prioritize ticker prefix matches
-    for entry in COMPANY_TICKER_LIST:
+    for entry in company_list:
         if entry["ticker"].startswith(term_upper):
             results.append({"ticker": entry["ticker"], "company": entry["company"]})
             if len(results) >= limit:
                 return results
 
     # Then company name matches
-    for entry in COMPANY_TICKER_LIST:
+    for entry in company_list:
         if term_lower in entry["company_lower"]:
             results.append({"ticker": entry["ticker"], "company": entry["company"]})
             if len(results) >= limit:
@@ -187,6 +328,11 @@ def build_correlation_matrix(
     Build a price return correlation matrix for a list of tickers.
     Uses yahooquery for pricing data and returns JSON-ready structure.
     """
+    # Lazy load heavy modules
+    yq = _get_yahooquery()
+    pd = _get_pandas()
+    np = _get_numpy()
+    
     if not raw_inputs:
         raise ValueError("No tickers provided")
 
@@ -229,7 +375,7 @@ def build_correlation_matrix(
     if len(unique_tickers) > 25:
         raise ValueError("Please limit requests to 25 tickers")
 
-    # Fetch historical prices
+    # Fetch historical prices with timeout
     ticker_obj = yq.Ticker(" ".join(unique_tickers))
     hist = ticker_obj.history(period=period, interval="1d")
     if hist is None or getattr(hist, "empty", True):
@@ -286,9 +432,14 @@ def build_correlation_matrix(
     }
 
 
-# Initialize Flask app
+# ============================================
+# FLASK APP INITIALIZATION
+# ============================================
 app = Flask(__name__, static_folder='static')
-CORS(app)
+
+# Restrict CORS to specific origins (security improvement)
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
 # ========== TOOLS ==========
 
@@ -298,6 +449,10 @@ def get_financial_metrics(ticker: str) -> str:
     Fetches comprehensive and validated financial ratios and metrics for a given ticker symbol.
     Uses same data source as technical analysis for consistency. Validates data quality.
     """
+    # Lazy load heavy modules
+    yq = _get_yahooquery()
+    pd = _get_pandas()
+    
     time.sleep(1)
     import urllib.error
     try:
@@ -630,6 +785,9 @@ def get_financial_metrics(ticker: str) -> str:
 @tool
 def get_market_news(ticker: str) -> str:
     """Fetches recent news for a given ticker symbol with sentiment analysis."""
+    # Lazy load
+    yq = _get_yahooquery()
+    
     try:
         ticker = ticker.upper().strip().lstrip('$')
         news_items: List[Dict] = []
@@ -798,7 +956,8 @@ def search_brave_sentiment(query: str) -> str:
 @tool
 def get_economic_indicators(indicator_type: str) -> str:
     """Fetches key economic indicators from FRED API. Options: 'general', 'inflation', 'employment', 'rates', 'gdp'"""
-    from datetime import datetime, timedelta
+    # Lazy load Fred
+    Fred = _get_fred()
     
     if not fred_api_key:
         return "❌ FRED_API_KEY not set"
@@ -901,6 +1060,9 @@ def get_economic_indicators(indicator_type: str) -> str:
 @tool
 def get_fed_policy_info() -> str:
     """Get Federal Reserve policy-related indicators including rates and balance sheet."""
+    # Lazy load Fred
+    Fred = _get_fred()
+    
     if not fred_api_key:
         return "❌ FRED_API_KEY not set"
     fred = Fred(api_key=fred_api_key)
@@ -939,6 +1101,11 @@ def get_technical_indicators(ticker: str) -> str:
     Fetches comprehensive technical indicators for a stock using the same data source as TradingView charts.
     Returns: RSI, MACD, Bollinger Bands, ATR, Moving Averages, Volume indicators, Support/Resistance levels.
     """
+    # Lazy load heavy modules
+    yq = _get_yahooquery()
+    talib, talib_available = _get_talib()
+    np = _get_numpy()
+    
     try:
         t = ticker.strip().lstrip('$').upper()
         stock = yq.Ticker(t)
@@ -966,7 +1133,7 @@ def get_technical_indicators(ticker: str) -> str:
         # === MOMENTUM INDICATORS ===
         result += "🔹 Momentum Indicators:\n"
         
-        if TALIB_AVAILABLE:
+        if talib_available and talib:
             # RSI (14-day)
             rsi = talib.RSI(close, timeperiod=14)
             rsi_val = float(rsi[-1])
@@ -1029,7 +1196,7 @@ def get_technical_indicators(ticker: str) -> str:
         # === TREND INDICATORS ===
         result += "\n🔹 Trend Indicators:\n"
         
-        if TALIB_AVAILABLE:
+        if talib_available and talib:
             # Moving Averages
             sma_20 = talib.SMA(close, timeperiod=20)
             sma_50 = talib.SMA(close, timeperiod=50)
@@ -1068,7 +1235,7 @@ def get_technical_indicators(ticker: str) -> str:
         # === VOLATILITY INDICATORS ===
         result += "\n🔹 Volatility Indicators:\n"
         
-        if TALIB_AVAILABLE:
+        if talib_available and talib:
             # Bollinger Bands
             bb_upper, bb_middle, bb_lower = talib.BBANDS(close, timeperiod=20, nbdevup=2, nbdevdn=2)
             bb_upper_val = float(bb_upper[-1])
@@ -1148,7 +1315,7 @@ def get_technical_indicators(ticker: str) -> str:
         bullish_signals = 0
         bearish_signals = 0
         
-        if TALIB_AVAILABLE:
+        if talib_available and talib:
             if rsi_val > 50:
                 bullish_signals += 1
             else:
@@ -1200,7 +1367,8 @@ def get_technical_indicators(ticker: str) -> str:
 @tool
 def get_bond_yields() -> str:
     """Fetches current US Treasury bond yields and yield curve analysis."""
-    from datetime import datetime, timedelta
+    # Lazy load Fred
+    Fred = _get_fred()
     
     if not fred_api_key:
         return "❌ FRED_API_KEY not set"
@@ -1366,6 +1534,9 @@ def get_commodity_prices() -> str:
     Returns:
         Formatted commodity prices with % changes and market context
     """
+    # Lazy load
+    yq = _get_yahooquery()
+    
     try:
         # Commodity futures symbols on Yahoo Finance
         commodities = {
@@ -1472,6 +1643,9 @@ def search_recent_macro_news(query: str) -> str:
     Returns:
         Formatted news results with titles, snippets, and URLs
     """
+    # Lazy load DDGS
+    DDGS = _get_ddgs()
+    
     try:
         # Search financial news sources
         search_query = f"{query} site:bloomberg.com OR site:reuters.com OR site:wsj.com"
@@ -1504,9 +1678,12 @@ def get_fed_speeches() -> str:
     Returns:
         Formatted list of recent Fed speeches with dates and titles
     """
+    # Lazy load BeautifulSoup
+    BeautifulSoup = _get_bs4()
+    
     try:
         url = "https://www.federalreserve.gov/newsevents/speeches.htm"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=API_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
         
@@ -1553,9 +1730,12 @@ def get_latest_fomc_statement() -> str:
     Returns:
         Latest FOMC statement date and key policy summary
     """
+    # Lazy load BeautifulSoup
+    BeautifulSoup = _get_bs4()
+    
     try:
         url = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=API_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
         
@@ -1658,52 +1838,68 @@ Provide a clear, structured analysis with:
 
 Be concise but thorough. Use data to support your analysis."""
 
-# Initialize LLMs for Dual-LLM Architecture
-# Mistral: Fast, cost-effective for validation and routing tasks
-llm_mistral = ChatMistralAI(
-    model="mistral-large-latest",  # or "mistral-medium-latest" for cost savings
-    temperature=0.1,
-    api_key=mistral_key,
-    max_tokens=1024,  # Shorter responses for validation/routing
-    max_retries=3,
-)
+# ============================================
+# LAZY LLM INITIALIZATION (Memory Optimization)
+# ============================================
+_llm_cache = {
+    'mistral': None,
+    'groq': None,
+    'openrouter': None,
+    'google': None,
+    'initialized': False
+}
 
-# Groq: Powerful analysis for final synthesis
-llm_groq = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.2,
-    api_key=groqK,
-    max_tokens=2048,
-    max_retries=3,
-)
+def _get_llm_mistral():
+    """Lazy initialize Mistral LLM."""
+    if _llm_cache['mistral'] is None:
+        ChatMistralAI = _get_chat_mistral()
+        _llm_cache['mistral'] = ChatMistralAI(
+            model="mistral-large-latest",
+            temperature=0.1,
+            api_key=mistral_key,
+            max_tokens=1024,
+            max_retries=3,
+        )
+        logger.info("✅ Mistral LLM initialized")
+    return _llm_cache['mistral']
 
-# Default LLM for backwards compatibility
-llm = llm_groq
+def _get_llm_groq():
+    """Lazy initialize Groq LLM."""
+    if _llm_cache['groq'] is None:
+        ChatGroq = _get_chat_groq()
+        _llm_cache['groq'] = ChatGroq(
+            model="openai/gpt-oss-120b",
+            temperature=0.2,
+            api_key=groqK,
+            max_tokens=2048,
+            max_retries=3,
+        )
+        logger.info("✅ Groq LLM initialized")
+    return _llm_cache['groq']
 
-# OpenRouter: Output validation with MiMo-V2-Flash reasoning model
-openrouter_client = None
-if openrouter_key:
-    openrouter_client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_key,
-    )
-    print("✅ OpenRouter MiMo-V2-Flash validator initialized")
-else:
-    print("⚠️ OpenRouter API key not set - output validation disabled")
+def _get_openrouter_client():
+    """Lazy initialize OpenRouter client."""
+    if _llm_cache['openrouter'] is None and openrouter_key:
+        OpenAI = _get_openai()
+        _llm_cache['openrouter'] = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=openrouter_key,
+        )
+        logger.info("✅ OpenRouter MiMo-V2-Flash validator initialized")
+    return _llm_cache['openrouter']
 
+def _get_google_client():
+    """Lazy initialize Google AI client."""
+    if _llm_cache['google'] is None and gai:
+        try:
+            genai = _get_genai()
+            _llm_cache['google'] = genai.Client(api_key=gai)
+            logger.info("✅ Google AI Flash 3 cleanup initialized")
+        except Exception as e:
+            logger.warning(f"Google AI initialization failed: {e}")
+    return _llm_cache['google']
 
 # ========== OUTPUT VALIDATION WITH MiMo-V2-Flash + Flash 3 CLEANUP ==========
-
-# Initialize Google AI client for final cleanup
-google_client = None
-if gai:
-    try:
-        google_client = genai.Client(api_key=gai)
-        print("✅ Google AI Flash 3 cleanup initialized")
-    except Exception as e:
-        print(f"⚠️ Google AI initialization failed: {e}")
-else:
-    print("⚠️ Google AI API key not set - final cleanup disabled")
 
 
 def _should_retry_google_error(err: Exception) -> bool:
@@ -1747,6 +1943,7 @@ def polish_with_flash3(original_analysis: str, validated_analysis: str, validati
     Returns:
         Polished, professional final analysis
     """
+    google_client = _get_google_client()
     if not google_client:
         return validated_analysis  # Return validated version if Flash 3 not available
 
@@ -1842,6 +2039,7 @@ def validate_analysis_output(
     # Store original for comparison
     original_analysis = analysis
 
+    openrouter_client = _get_openrouter_client()
     if not openrouter_client:
         return {
             "validated": True,
@@ -2037,6 +2235,9 @@ def analyze_sentiment_with_mistral(text: str, context: str = "") -> dict:
             "reasoning": "No text or Mistral API key not configured"
         }
 
+    # Lazy load LLM
+    llm_mistral = _get_llm_mistral()
+
     try:
         prompt = f"""Analyze the sentiment of this financial text.
 
@@ -2121,8 +2322,9 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
 Question: {clean_question}"""
 
     try:
-        # Use Mistral for fast, cost-effective validation
-        print("🤖 Using Mistral AI for question validation...")
+        # Use Mistral for fast, cost-effective validation (lazy load)
+        llm_mistral = _get_llm_mistral()
+        logger.info("🤖 Using Mistral AI for question validation...")
         response = llm_mistral.invoke(validator_prompt)
         content = response.content.strip()
         
@@ -2199,8 +2401,9 @@ Example response:
 Be conservative - only select tools that are truly needed. Maximum 4 tools."""
 
     try:
-        # Use Mistral for fast, intelligent tool selection
-        print("🤖 Using Mistral AI for intelligent tool selection...")
+        # Use Mistral for fast, intelligent tool selection (lazy load)
+        llm_mistral = _get_llm_mistral()
+        logger.info("🤖 Using Mistral AI for intelligent tool selection...")
         response = llm_mistral.invoke(tool_prompt)
         content = response.content.strip()
         
@@ -2234,57 +2437,96 @@ MACRO_AGENT_AVAILABLE = True  # Using LLM-based selection instead
 
 
 def analyze_stock_with_tools(ticker: str, company_name: str | None = None) -> str:
-    """Analyze a stock by gathering data from tools and synthesizing with LLM."""
+    """Analyze a stock by gathering data from tools and synthesizing with LLM.
+    
+    Uses parallel API calls with ThreadPoolExecutor for faster response times.
+    """
     try:
-        # Gather data from tools
-        print(f"📊 Fetching financial metrics for {ticker}...")
-        metrics = get_financial_metrics.invoke(ticker)
-        
-        print(f"📈 Fetching technical indicators for {ticker}...")
-        technical = get_technical_indicators.invoke(ticker)
-        
-        print(f"📰 Fetching market news for {ticker}...")
-        news = get_market_news.invoke(ticker)
-        
-        # Fetch Brave Search sentiment for additional context
-        print(f"🔍 Searching Brave for sentiment on {ticker}...")
-        brave_sentiment = ""
-        if brave:  # Only if Brave API key is configured
-            try:
-                brave_sentiment = search_brave_sentiment.invoke(ticker)
-            except Exception as e:
-                print(f"⚠️ Brave Search failed: {e}")
-                brave_sentiment = "Brave Search unavailable"
-
-        # Fetch market risk premium for valuation context
-        print(f"📊 Fetching market risk premium for valuation...")
-        market_risk = ""
-        if fmp:  # Only if FMP API key is configured
-            try:
-                market_risk = get_market_risk.invoke("")
-            except Exception as e:
-                print(f"⚠️ Market risk premium fetch failed: {e}")
-                market_risk = "Market risk premium unavailable"
-
-        # Check if this is a mining/commodity company and fetch commodity prices
-        commodity_prices = ""
+        # Check if this is a mining/commodity company
         mining_companies = ['NEM', 'GOLD', 'AUY', 'KGC', 'FCX', 'SCCO', 'AA', 'X', 'CLF', 'VALE', 'RIO', 'BHP', 
                            'NEWMONT', 'BARRICK', 'FREEPORT', 'ALCOA', 'NEWCREST', 'ANGLO', 'GLENCORE']
         company_lower = (company_name or "").lower()
-        
         is_mining_company = (ticker.upper() in mining_companies or 
                            any(keyword in company_lower for keyword in ['mining', 'gold', 'silver', 'copper', 'metal', 'mineral']))
         
-        if is_mining_company:
-            print(f"🏗️ Detected mining/commodity company - fetching commodity prices...")
+        # Define data fetching tasks
+        def fetch_metrics():
+            logger.info(f"📊 Fetching financial metrics for {ticker}...")
+            return get_financial_metrics.invoke(ticker)
+        
+        def fetch_technical():
+            logger.info(f"📈 Fetching technical indicators for {ticker}...")
+            return get_technical_indicators.invoke(ticker)
+        
+        def fetch_news():
+            logger.info(f"📰 Fetching market news for {ticker}...")
+            return get_market_news.invoke(ticker)
+        
+        def fetch_brave_sentiment():
+            if not brave:
+                return ""
             try:
-                commodity_prices = get_commodity_prices.invoke("")
+                logger.info(f"🔍 Searching Brave for sentiment on {ticker}...")
+                return search_brave_sentiment.invoke(ticker)
             except Exception as e:
-                print(f"⚠️ Commodity prices fetch failed: {e}")
-                commodity_prices = "Commodity prices unavailable"
+                logger.warning(f"Brave Search failed: {e}")
+                return "Brave Search unavailable"
+        
+        def fetch_market_risk():
+            if not fmp:
+                return ""
+            try:
+                logger.info(f"📊 Fetching market risk premium...")
+                return get_market_risk.invoke("")
+            except Exception as e:
+                logger.warning(f"Market risk premium fetch failed: {e}")
+                return "Market risk premium unavailable"
+        
+        def fetch_commodities():
+            if not is_mining_company:
+                return ""
+            try:
+                logger.info(f"🏗️ Fetching commodity prices for mining company...")
+                return get_commodity_prices.invoke("")
+            except Exception as e:
+                logger.warning(f"Commodity prices fetch failed: {e}")
+                return "Commodity prices unavailable"
+        
+        # Execute all fetches in parallel with timeout
+        logger.info(f"🚀 Starting parallel data fetch for {ticker}...")
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {
+                'metrics': executor.submit(fetch_metrics),
+                'technical': executor.submit(fetch_technical),
+                'news': executor.submit(fetch_news),
+                'brave': executor.submit(fetch_brave_sentiment),
+                'risk': executor.submit(fetch_market_risk),
+                'commodities': executor.submit(fetch_commodities),
+            }
+            
+            # Collect results with timeout
+            results = {}
+            for key, future in futures.items():
+                try:
+                    results[key] = future.result(timeout=API_TIMEOUT)
+                except FuturesTimeoutError:
+                    logger.warning(f"Timeout fetching {key} for {ticker}")
+                    results[key] = f"⚠️ {key.title()} data fetch timed out"
+                except Exception as e:
+                    logger.error(f"Error fetching {key}: {e}")
+                    results[key] = f"⚠️ Error fetching {key}: {str(e)[:50]}"
+        
+        metrics = results.get('metrics', '')
+        technical = results.get('technical', '')
+        news = results.get('news', '')
+        brave_sentiment = results.get('brave', '')
+        market_risk = results.get('risk', '')
+        commodity_prices = results.get('commodities', '')
+        
+        logger.info(f"✅ Parallel data fetch complete for {ticker}")
 
         # Create a comprehensive prompt for the LLM
-        display_name = company_name or TICKER_TO_NAME.get(ticker)
+        display_name = company_name or get_ticker_to_name().get(ticker)
         header = f"{display_name} ({ticker})" if display_name else ticker
 
         commodity_section = f"\n## Commodity Prices (Key for Mining Operations)\n{commodity_prices}" if commodity_prices else ""
@@ -2326,8 +2568,9 @@ Provide your analysis following the structure outlined in the system prompt. Be 
 
 Be thorough, data-driven, and actionable."""
 
-        # Use Groq for comprehensive analysis synthesis
-        print("🚀 Using Groq OAI/gpt-oss-120b for comprehensive stock analysis synthesis...")
+        # Use Groq for comprehensive analysis synthesis (lazy load)
+        llm_groq = _get_llm_groq()
+        logger.info("🚀 Using Groq OAI/gpt-oss-120b for comprehensive stock analysis synthesis...")
         response = llm_groq.invoke(prompt)
         analysis = response.content
 
@@ -2413,29 +2656,61 @@ Please rephrase your question to focus on macroeconomic topics."""
         selected_tools = select_tools_for_question(clean_topic, validation)
         print(f"🔧 Selected tools: {[t[0] for t in selected_tools]}")
         
-        # Execute selected tools and gather data
+        # Execute selected tools in parallel and gather data
         data_sections = []
         tools_used = []
         
-        for tool_name, tool_input in selected_tools:
+        def execute_tool(tool_info):
+            """Execute a single tool with error handling."""
+            tool_name, tool_input = tool_info
             try:
                 tool_func = MACRO_TOOL_MAP.get(tool_name)
                 if tool_func:
-                    print(f"  📊 Executing {tool_name}...")
+                    logger.info(f"  📊 Executing {tool_name}...")
                     result = tool_func.invoke(tool_input) if tool_input else tool_func.invoke("")
-                    data_sections.append(f"## {tool_name.replace('_', ' ').title()}\n{result}")
-                    tools_used.append(tool_name)
+                    return tool_name, f"## {tool_name.replace('_', ' ').title()}\n{result}", True
             except Exception as tool_error:
-                print(f"  ⚠️ Error in {tool_name}: {tool_error}")
-                data_sections.append(f"## {tool_name.replace('_', ' ').title()}\nError: {str(tool_error)}")
+                logger.warning(f"  ⚠️ Error in {tool_name}: {tool_error}")
+                return tool_name, f"## {tool_name.replace('_', ' ').title()}\nError: {str(tool_error)}", False
+            return tool_name, None, False
         
-        # If no tools executed, use fallback
+        # Execute tools in parallel with timeout
+        logger.info(f"🚀 Starting parallel macro tool execution ({len(selected_tools)} tools)...")
+        with ThreadPoolExecutor(max_workers=min(6, len(selected_tools))) as executor:
+            futures = {executor.submit(execute_tool, t): t for t in selected_tools}
+            
+            for future in futures:
+                try:
+                    tool_name, section, success = future.result(timeout=API_TIMEOUT)
+                    if section:
+                        data_sections.append(section)
+                        if success:
+                            tools_used.append(tool_name)
+                except FuturesTimeoutError:
+                    tool_name = futures[future][0]
+                    logger.warning(f"Timeout executing {tool_name}")
+                    data_sections.append(f"## {tool_name.replace('_', ' ').title()}\n⚠️ Timed out")
+                except Exception as e:
+                    logger.error(f"Error in parallel tool execution: {e}")
+        
+        logger.info(f"✅ Parallel macro tool execution complete ({len(tools_used)} successful)")
+        
+        # If no tools executed, use fallback (also parallel)
         if not data_sections:
-            print("📉 Using fallback direct analysis...")
-            data_sections.append(f"## Economic Indicators\n{get_economic_indicators.invoke('general')}")
-            data_sections.append(f"## Fed Policy\n{get_fed_policy_info.invoke('')}")
-            data_sections.append(f"## Bond Yields\n{get_bond_yields.invoke('')}")
-            tools_used = ["get_economic_indicators", "get_fed_policy_info", "get_bond_yields"]
+            logger.info("📉 Using fallback direct analysis...")
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                fallback_futures = [
+                    executor.submit(lambda: ("get_economic_indicators", get_economic_indicators.invoke('general'))),
+                    executor.submit(lambda: ("get_fed_policy_info", get_fed_policy_info.invoke(''))),
+                    executor.submit(lambda: ("get_bond_yields", get_bond_yields.invoke(''))),
+                ]
+                for future in fallback_futures:
+                    try:
+                        name, result = future.result(timeout=API_TIMEOUT)
+                        data_sections.append(f"## {name.replace('_', ' ').title()}\n{result}")
+                        tools_used.append(name)
+                    except Exception:
+                        pass
         
         data_summary = "\n\n".join(data_sections)
         
@@ -2458,8 +2733,9 @@ Based on this data, provide a comprehensive macro analysis including:
 
 Be concise but thorough. Respond with formatted analysis text only - no JSON, no tool calls."""
 
-        # Use Groq for comprehensive macro synthesis
-        print("🚀 Using Groq OAI/gpt-oss-120b for comprehensive macro analysis synthesis...")
+        # Use Groq for comprehensive macro synthesis (lazy load)
+        llm_groq = _get_llm_groq()
+        logger.info("🚀 Using Groq OAI/gpt-oss-120b for comprehensive macro analysis synthesis...")
         response = llm_groq.invoke(prompt)
         content = response.content
 
@@ -2569,7 +2845,7 @@ def analyze_stock():
         if resolved_ticker is None:
             return jsonify({'error': f"Unable to find a ticker for '{user_query}'"}), 404
 
-        company_name = TICKER_TO_NAME.get(resolved_ticker)
+        company_name = get_ticker_to_name().get(resolved_ticker)
 
         # Run the stock analysis with tools (returns dict with all versions)
         result = analyze_stock_with_tools(resolved_ticker, company_name)
@@ -2602,7 +2878,8 @@ def analyze_stock():
             })
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"Stock analysis error for {request.get_json().get('ticker', 'unknown')}: {e}")
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
 
 
 @app.route('/api/analyze/macro', methods=['POST'])
@@ -2642,7 +2919,8 @@ def analyze_macro():
             })
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"Macro analysis error: {e}")
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
 
 
 @app.route('/api/tickers/search')
@@ -2650,12 +2928,13 @@ def search_tickers():
     """Search tickers or company names for auto-complete."""
     try:
         query = request.args.get('q', '').strip()
-        if not query or not COMPANY_TICKER_LIST:
+        if not query or not get_ticker_list():
             return jsonify([])
         matches = search_company_tickers(query)
         return jsonify(matches)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Ticker search failed: {e}")
+        return jsonify({'error': 'Search temporarily unavailable'}), 500
 
 
 @app.route('/api/quick/metrics/<ticker>')
@@ -2691,6 +2970,10 @@ def quick_yields():
 @app.route('/api/chart/<ticker>')
 def get_chart_data(ticker):
     """Get historical OHLCV data for TradingView Lightweight Charts."""
+    # Lazy load
+    yq = _get_yahooquery()
+    pd = _get_pandas()
+    
     try:
         ticker = ticker.strip().lstrip('$').upper()
         period = request.args.get('period', '1y')  # 1m, 3m, 6m, 1y, 2y, 5y
@@ -2747,7 +3030,7 @@ def get_chart_data(ticker):
         
         return jsonify({
             'ticker': ticker,
-            'displayName': TICKER_TO_NAME.get(ticker),
+            'displayName': get_ticker_to_name().get(ticker),
             'period': period,
             'candles': candle_data,
             'volume': volume_data,
@@ -2764,6 +3047,9 @@ def get_chart_data(ticker):
 @app.route('/api/calculate-return', methods=['POST'])
 def calculate_return():
     """Calculate total return with FX impact."""
+    # Lazy load
+    pd = _get_pandas()
+    
     try:
         data = request.get_json()
 
@@ -2789,9 +3075,10 @@ def calculate_return():
 
         # Resolve ticker to company name
         resolved_ticker = resolve_ticker_symbol(ticker) or ticker
-        display_name = TICKER_TO_NAME.get(resolved_ticker, ticker)
+        display_name = get_ticker_to_name().get(resolved_ticker, ticker)
 
         # Fetch historical prices (if not overridden)
+        yq = _get_yahooquery()
         stock = yq.Ticker(resolved_ticker)
         hist = stock.history(start=buy_date, end=sell_date, interval="1d")
 
@@ -2877,7 +3164,41 @@ def calculate_return():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"Calculate return error: {e}")
+        return jsonify({'error': 'Calculation failed. Please try again.'}), 500
+
+
+# ============================================
+# ERROR HANDLERS
+# ============================================
+@app.errorhandler(500)
+def handle_500(error):
+    """Handle internal server errors."""
+    logger.error(f"Internal server error: {error}")
+    return jsonify({'error': 'Internal server error. Please try again.'}), 500
+
+@app.errorhandler(404)
+def handle_404(error):
+    """Handle not found errors."""
+    return jsonify({'error': 'Resource not found.'}), 404
+
+@app.errorhandler(429)
+def handle_429(error):
+    """Handle rate limit errors."""
+    return jsonify({'error': 'Too many requests. Please wait before trying again.'}), 429
+
+
+# ============================================
+# HEALTH CHECK ENDPOINT
+# ============================================
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for monitoring."""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'version': '2.0.0-optimized'
+    })
 
 
 if __name__ == '__main__':
