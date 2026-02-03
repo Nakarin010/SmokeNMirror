@@ -9,7 +9,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://ciom4h2th5.execute-api.us-east-1.amazonaws.com/prod/api/:path*"
+      "destination": "https://ciom4h2th5.execute-api.us-east-1.amazonaws.com/prod"
     }
   ],
   

@@ -1,0 +1,14 @@
+# Ignore Python backend (deployed to Lambda instead)
+app.py
+lambda_handler.py
+*.py
+__pycache__/
+.aws-sam/
+requirements.txt
+template.yaml
+samconfig.toml
+
+# Keep only frontend files
+!index.html
+!styles.css
+!company_tickers.json

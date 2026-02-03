@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SmokeNMirror - AI-Powered Financial Analysis Platform
+  Deployed on AWS Lambda with API Gateway
+
+Globals:
+  Function:
+    Timeout: 120
+    MemorySize: 512
+    Runtime: python3.11
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        # Disable buffering for better logging
+        PYTHONUNBUFFERED: "1"
+        # API Timeouts
+        API_TIMEOUT: "30"
+        LLM_TIMEOUT: "60"
+
+Parameters:
+  # Required API Keys (passed via --parameter-overrides or samconfig.toml)
+  FredApiKey:
+    Type: String
+    NoEcho: true
+    Description: FRED API Key for economic data
+  MistralApiKey:
+    Type: String
+    NoEcho: true
+    Description: Mistral AI API Key
+  GroqApiKey:
+    Type: String
+    NoEcho: true
+    Description: Groq API Key
+  OpenRouterApiKey:
+    Type: String
+    NoEcho: true
+    Description: OpenRouter API Key for MiMo validation
+  GoogleAiKey:
+    Type: String
+    NoEcho: true
+    Description: Google AI Studio API Key
+  
+  # Optional API Keys
+  FinnhubApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Finnhub API Key (optional)
+  PolygonApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Polygon API Key (optional)
+  BraveApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Brave Search API Key (optional)
+  FmpApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Financial Modeling Prep API Key (optional)
+  
+  # CORS Configuration
+  AllowedOrigins:
+    Type: String
+    Default: "*"
+    Description: Comma-separated list of allowed CORS origins
+
+  # Stage name
+  StageName:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: API Gateway stage name
+
+Resources:
+  # Lambda Function
+  SmokeNMirrorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "smokenmiror-api-${StageName}"
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Description: SmokeNMirror Financial Analysis API
+      MemorySize: 1024  # 1GB for heavy analysis
+      Timeout: 120      # 2 minutes max
+      Environment:
+        Variables:
+          # Required keys
+          FRED_API: !Ref FredApiKey
+          MISTRAL: !Ref MistralApiKey
+          groq: !Ref GroqApiKey
+          OPENROUTER: !Ref OpenRouterApiKey
+          GAI: !Ref GoogleAiKey
+          # Optional keys
+          finhub: !Ref FinnhubApiKey
+          POLYGON: !Ref PolygonApiKey
+          BRAVE: !Ref BraveApiKey
+          FMP: !Ref FmpApiKey
+          # CORS
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      Events:
+        # Catch-all API route
+        ApiCatchAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        # Root path
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+      Tags:
+        Project: SmokeNMirror
+        Environment: !Ref StageName
+
+  # HTTP API (API Gateway v2 - faster and cheaper than REST API)
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      Description: SmokeNMirror API Gateway
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Requested-With
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 300
+      Tags:
+        Project: SmokeNMirror
+
+  # CloudWatch Log Group with retention
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/smokenmiror-api-${StageName}"
+      RetentionInDays: 14
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
+  
+  FunctionArn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt SmokeNMirrorFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionArn"
+  
+  FunctionName:
+    Description: "Lambda Function Name"
+    Value: !Ref SmokeNMirrorFunction

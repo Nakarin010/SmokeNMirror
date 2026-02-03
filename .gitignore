@@ -1,2 +1,55 @@
+# Environment files (contain secrets!)
 .env
+.env.local
+.env.*.local
+
+# IDE/Editor
 /.cursor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# AWS SAM
+.aws-sam/
+samconfig.toml.bak
+packaged.yaml
+
+# Vercel
+.vercel/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.vercel
+.env*.local

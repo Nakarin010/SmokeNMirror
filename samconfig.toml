@@ -1,0 +1,66 @@
+# AWS SAM CLI Configuration File
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+# Default deployment configuration
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "smokenmiror-api"
+region = "us-east-1"
+
+[default.build.parameters]
+cached = true
+parallel = true
+use_container = true  # Build inside Docker for consistent environment
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "smokenmiror-api"
+region = "us-east-1"
+image_repositories = []
+
+# Parameter overrides - REPLACE WITH YOUR ACTUAL KEYS
+# Or use: sam deploy --parameter-overrides "FredApiKey=xxx MistralApiKey=xxx ..."
+parameter_overrides = "AllowedOrigins=\"*\" StageName=\"prod\""
+
+# Development environment
+disable_rollback = true
+[dev]
+[dev.deploy.parameters]
+stack_name = "smokenmiror-api-dev"
+s3_prefix = "smokenmiror-api-dev"
+parameter_overrides = [
+    "StageName=dev",
+    "AllowedOrigins=http://localhost:3000,http://localhost:5000",
+]
+
+# Staging environment
+[staging]
+[staging.deploy.parameters]
+stack_name = "smokenmiror-api-staging"
+s3_prefix = "smokenmiror-api-staging"
+parameter_overrides = [
+    "StageName=staging",
+]
+
+# Production environment
+[prod]
+[prod.deploy.parameters]
+stack_name = "smokenmiror-api-prod"
+s3_prefix = "smokenmiror-api-prod"
+confirm_changeset = true
+parameter_overrides = [
+    "StageName=prod",
+]
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
