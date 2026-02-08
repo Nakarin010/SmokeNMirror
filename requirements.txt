@@ -5,6 +5,7 @@ langchain-openai>=0.0.5
 langchain-mistralai>=0.0.1
 langchain-groq>=0.0.1
 
+tiktoken>=0.5.0,<0.8.0
 # OpenRouter (output validation)
 openai>=1.0.0
 google-genai>=0.4.0
@@ -18,8 +19,8 @@ polygon-api-client>=1.12.0
 
 # Technical Analysis
 ta-lib>=0.4.0
-numpy>=1.24.0
-pandas>=2.0.0
+numpy>=1.24.0,<2.0.0
+pandas>=2.0.0,<2.2.0
 
 # HTTP & Environment
 requests>=2.31.0
@@ -34,5 +35,5 @@ beautifulsoup4>=4.12.0
 flask>=3.0.0
 flask-cors>=4.0.0
 
-# AWS Lambda Adapter
-mangum>=0.17.0
+# AWS Lambda Adapter (WSGI - for Flask)
+apig-wsgi>=2.18.0

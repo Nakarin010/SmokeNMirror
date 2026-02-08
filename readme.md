@@ -482,13 +482,32 @@ Q3 2025: Multi-user Support (authentication, sessions)
 Q4 2025: Real-time Features (WebSocket, alerts)
 ```
 
+## Deployment Architecture
+
+```
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│     Vercel      │  proxy  │  API Gateway    │  invoke │  AWS Lambda     │
+│   (Frontend)    │ ──────► │   (HTTP API)    │ ──────► │   (Backend)     │
+│                 │         │                 │         │                 │
+│  - index.html   │         │  - /api/*       │         │  - Flask app    │
+│  - styles.css   │         │  - CORS         │         │  - LLM pipeline │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+```
+
+- **Frontend**: Static files hosted on Vercel
+- **Backend**: Flask app running on AWS Lambda via `apig-wsgi`
+- **Routing**: Vercel rewrites `/api/*` requests to Lambda
+
 ## Installation
 
 ### Prerequisites
-- Python 3.8 or higher
-- TA-Lib (system-level installation required)
+- Python 3.11+
+- AWS CLI configured (`aws configure`)
+- SAM CLI installed (`brew install aws-sam-cli`)
+- Vercel CLI installed (`npm i -g vercel`)
+- TA-Lib (optional, system-level)
 
-### 1. Install TA-Lib
+### 1. Install TA-Lib (Optional)
 
 **macOS:**
 ```bash
@@ -500,8 +519,7 @@ brew install ta-lib
 sudo apt-get install ta-lib-dev
 ```
 
-**Windows:**
-Download pre-built binaries from [ta-lib.org](http://ta-lib.org/hdr_dw.html)
+**Note:** The app works without TA-Lib using fallback calculations.
 
 ### 2. Clone Repository
 ```bash
@@ -702,30 +720,27 @@ GET /api/tickers/search?q=apple
 
 ```
 SmokeNMirror/
-├── app.py                      # Flask backend with Quad-LLM agents (2642 lines)
+├── app.py                      # Flask backend with Quad-LLM agents
+├── lambda_handler.py           # AWS Lambda handler (apig-wsgi)
 ├── index.html                  # Frontend web interface with TradingView
 ├── styles.css                  # Modern UI styling with themes
-├── company_tickers.json        # SEC company ticker database (~8MB)
-├── requirements.txt            # Python dependencies (27 packages)
-├── .env                        # Environment variables (API keys)
+├── company_tickers.json        # SEC company ticker database
+├── requirements.txt            # Python dependencies
+├── template.yaml               # AWS SAM template (Lambda + API Gateway)
+├── samconfig.toml              # SAM CLI configuration
+├── vercel.json                 # Vercel deployment (frontend + API proxy)
+├── .env                        # Environment variables (not committed)
 ├── CLAUDE.md                   # Claude Code guidance documentation
-├── readme.md                   # This comprehensive documentation
-├── MACRO_IMPROVEMENT_PLAN.md   # Detailed roadmap for macro enhancements
-├── TRI_LLM_SETUP.md            # Tri-LLM (now Quad-LLM) setup guide
+├── readme.md                   # This documentation
+├── AWS_DEPLOYMENT.md           # AWS Lambda deployment guide
+├── MACRO_IMPROVEMENT_PLAN.md   # Roadmap for macro enhancements
+├── TRI_LLM_SETUP.md            # Quad-LLM setup guide
 ├── MISTRAL_INTEGRATION.md      # Mistral AI integration details
 ├── OUTPUT_VALIDATION.md        # Output validation documentation
-├── IMPLEMENTATION_SUMMARY.md   # Implementation summary
 ├── improvement.md              # Portfolio dashboard implementation plan
-├── toimprove.txt               # TODO list for future features
 ├── test.py                     # Basic functionality tests
 ├── test_comprehensive.py       # Comprehensive system tests
-├── vercel.json                 # Deployment configuration
-├── visualize.md                # Architecture visualization notes
-├── .cursor/                    # Cursor IDE commands
-│   └── commands/
-│       ├── visualize.md        # Mermaid diagram generation
-│       └── plan.md             # Implementation planning
-└── __pycache__/                # Python bytecode cache
+└── .aws-sam/                   # SAM build artifacts (not committed)
 ```
 
 ## Configuration
@@ -826,74 +841,136 @@ The app will use fallback calculations for basic indicators.
 
 ### Common Issues
 
-**1. TA-Lib Import Error**
+**1. "Resource not found" (404) on Lambda**
+```
+{"error":"Resource not found."}
+```
+Solution: The Lambda handler needs to strip the stage prefix (`/prod`) from paths. Ensure you're using the latest `lambda_handler.py` with path fixing logic.
+
+**2. "Internal Server Error" (500) on Lambda**
+```
+{"error":"Internal server error"}
+```
+Solution: Check CloudWatch logs for the actual error:
+```bash
+sam logs -n SmokeNMirrorFunction --stack-name smokenmiror-api-prod --tail
+```
+
+**3. TA-Lib Import Error**
 ```
 ImportError: No module named 'talib'
 ```
-Solution: Install TA-Lib at system level (see Installation section)
+Solution: Use `sam build --use-container` for Docker-based builds, or the app will use fallback calculations.
 
-**2. API Rate Limits**
+**4. API Rate Limits**
 ```
 Error fetching metrics: 429 Too Many Requests
 ```
-Solution: Wait a few minutes, the app has built-in retry logic
+Solution: Wait a few minutes, the app has built-in retry logic.
 
-**3. Missing API Keys**
+**5. Missing API Keys**
 ```
 ❌ FRED_API_KEY not set
 ```
-Solution: Add required API keys to `.env` file
+Solution: Set environment variables in Lambda via `sam deploy --parameter-overrides`.
 
-**4. CORS Errors**
-```
-Access-Control-Allow-Origin error
-```
-Solution: Ensure Flask-CORS is installed and the server is running
+**6. Cold Start Latency**
+First Lambda request takes 5-15 seconds due to cold start. Solutions:
+- Enable Provisioned Concurrency for production
+- Keep Lambda warm with scheduled CloudWatch Events
 
-**5. No Data for Ticker**
+**7. MiMo Validation Failed**
 ```
-❌ No price data available for XYZ
+⚠️ Output validation error: 404 - free tier ended
 ```
-Solution: Verify ticker symbol is correct and traded on major exchanges
+Solution: Non-critical - the app falls back gracefully. To use paid MiMo, update the model slug in `app.py`.
 
 ### Debug Mode
 
-To see detailed logs, the app runs in debug mode by default:
-```python
-app.run(debug=True, port=5000)
+**Local debugging:**
+```bash
+python app.py  # Runs with debug=True on port 5092
 ```
 
-## Deployment Considerations
+**Lambda debugging:**
+```bash
+# View real-time logs
+sam logs -n SmokeNMirrorFunction --stack-name smokenmiror-api-prod --tail
 
-For production deployment:
+# Test locally with SAM
+sam local start-api
+```
 
-1. **Disable Debug Mode**:
-   ```python
-   app.run(debug=False, port=5000)
-   ```
+## Deployment
 
-2. **Use Production Server**:
-   ```bash
-   pip install gunicorn
-   gunicorn -w 4 -b 0.0.0.0:5000 app:app
-   ```
+### Deploy Backend (AWS Lambda)
 
-3. **Implement Caching**:
-   - Add Redis or in-memory caching for API responses
-   - Cache duration: 1-5 minutes for stock data, 1 hour for economic data
+```bash
+# Build with Docker (required for TA-Lib native compilation)
+sam build --use-container
 
-4. **Rate Limiting**:
-   - Use Flask-Limiter to prevent abuse
-   - Implement request queuing for API calls
+# Deploy (first time - guided setup)
+sam deploy --guided
 
-5. **Environment Variables**:
-   - Use proper secret management (AWS Secrets Manager, HashiCorp Vault)
-   - Never commit `.env` to version control
+# Deploy (subsequent times)
+sam deploy
+```
 
-6. **Monitoring**:
-   - Add logging with rotating file handlers
-   - Implement error tracking (Sentry, Rollbar)
-   - Monitor API usage and quotas
+The SAM template (`template.yaml`) configures:
+- **Runtime**: Python 3.11
+- **Memory**: 1024 MB
+- **Timeout**: 120 seconds
+- **Handler**: `lambda_handler.handler`
+
+### Deploy Frontend (Vercel)
+
+1. Update `vercel.json` with your API Gateway URL:
+```json
+{
+  "rewrites": [{
+    "source": "/api/:path*",
+    "destination": "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/prod/api/:path*"
+  }]
+}
+```
+
+2. Deploy:
+```bash
+vercel --prod
+```
+
+### Environment Variables (Lambda)
+
+Set these in `template.yaml` parameters or via `sam deploy --parameter-overrides`:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `GroqApiKey` | Yes | Groq API key for GPT-OSS |
+| `MistralApiKey` | Yes | Mistral AI for validation |
+| `OpenRouterApiKey` | Yes | OpenRouter for MiMo |
+| `GoogleAiKey` | Yes | Google AI for Gemini |
+| `FredApiKey` | Yes | FRED economic data |
+| `FinnhubApiKey` | No | Finnhub news |
+| `PolygonApiKey` | No | Polygon data |
+| `BraveApiKey` | No | Brave Search |
+
+### Local Development
+
+```bash
+# Run Flask locally
+python app.py
+# Server at http://localhost:5092
+
+# Or use SAM local
+sam local start-api
+```
+
+### Production Considerations
+
+1. **Monitoring**: Check CloudWatch logs for Lambda errors
+2. **Cold Starts**: First request may take 5-15s; consider Provisioned Concurrency
+3. **Rate Limiting**: API Gateway handles throttling
+4. **Secrets**: Use AWS Secrets Manager for API keys in production
 
 ## Limitations
 
