@@ -168,13 +168,16 @@
                     <div class="input-wrapper">
                         <textarea id="macro-topic" placeholder="e.g., What is the current Fed policy outlook? How are bond yields affecting markets?"></textarea>
                     </div>
-                    <div class="quick-select">
+                    <div class="quick-select" id="macro-quick-select">
                         <span class="quick-chip" data-topic="What is the current Federal Reserve policy outlook and interest rate trajectory?">Fed Policy</span>
                         <span class="quick-chip" data-topic="Analyze current US Treasury bond yields and yield curve status">Bond Yields</span>
                         <span class="quick-chip" data-topic="What are the latest inflation indicators and PCE data?">Inflation</span>
                         <span class="quick-chip" data-topic="Analyze current employment data and labor market conditions">Employment</span>
                         <span class="quick-chip" data-topic="What is the current GDP growth outlook?">GDP Growth</span>
                         <span class="quick-chip" data-topic="Analyze the yield curve inversion and recession probability">Yield Curve</span>
+                    </div>
+                    <div class="quick-select-actions">
+                        <button type="button" class="quick-chip quick-chip-action" id="refresh-macro-ideas-btn">Refresh Ideas</button>
                     </div>
                 </div>
                 
@@ -400,6 +403,8 @@
         const stockResultsTicker = document.getElementById('stock-results-ticker');
         const stockTimestamp = document.getElementById('stock-timestamp');
         const macroTimestamp = document.getElementById('macro-timestamp');
+        const macroQuickSelect = document.getElementById('macro-quick-select');
+        const refreshMacroIdeasBtn = document.getElementById('refresh-macro-ideas-btn');
         const tickerSuggestions = document.getElementById('ticker-suggestions');
         const themeToggleBtn = document.getElementById('theme-toggle');
         const themeIcon = document.getElementById('theme-toggle-icon');
@@ -434,6 +439,7 @@
             validated: '',
             original: ''
         };
+        const seenMacroQuestions = new Set();
 
         function applyTheme(theme) {
             const isLight = theme === 'light';
@@ -492,13 +498,75 @@
             });
         });
 
-        // Quick Select Chips - Macro
-        document.querySelectorAll('.quick-chip[data-topic]').forEach(chip => {
-            chip.addEventListener('click', () => {
+        // Quick Select Chips - Macro (event delegation for dynamic chips)
+        if (macroQuickSelect) {
+            macroQuickSelect.addEventListener('click', (event) => {
+                const chip = event.target.closest('.quick-chip[data-topic]');
+                if (!chip) return;
                 macroTopicInput.value = chip.dataset.topic;
                 macroTopicInput.focus();
             });
-        });
+        }
+
+        function renderMacroQuickChips(items) {
+            if (!macroQuickSelect || !Array.isArray(items) || items.length === 0) return;
+            macroQuickSelect.innerHTML = '';
+            items.forEach(item => {
+                const label = (item.label || item.question || '').toString().trim();
+                const question = (item.question || item.label || '').toString().trim();
+                if (!label || !question) return;
+                const chip = document.createElement('span');
+                chip.className = 'quick-chip';
+                chip.dataset.topic = question;
+                chip.textContent = label;
+                macroQuickSelect.appendChild(chip);
+                seenMacroQuestions.add(question.toLowerCase());
+            });
+        }
+
+        async function loadMacroQuickChips({ forceRefresh = false, showStatus = false } = {}) {
+            if (!macroQuickSelect) return;
+            try {
+                if (refreshMacroIdeasBtn) {
+                    refreshMacroIdeasBtn.disabled = true;
+                    refreshMacroIdeasBtn.textContent = 'Refreshing...';
+                }
+
+                const response = await fetch(`${API_BASE}/api/suggestions/macro`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        refresh: forceRefresh,
+                        exclude: Array.from(seenMacroQuestions)
+                    })
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return;
+                renderMacroQuickChips(data.suggestions);
+                if (showStatus) {
+                    showToast('Loaded new macro ideas', 'success');
+                }
+            } catch (error) {
+                console.log('Macro suggestions unavailable:', error);
+                if (showStatus) {
+                    showToast('Could not refresh ideas right now', 'warning');
+                }
+            } finally {
+                if (refreshMacroIdeasBtn) {
+                    refreshMacroIdeasBtn.disabled = false;
+                    refreshMacroIdeasBtn.textContent = 'Refresh Ideas';
+                }
+            }
+        }
+
+        if (refreshMacroIdeasBtn) {
+            refreshMacroIdeasBtn.addEventListener('click', () => {
+                loadMacroQuickChips({ forceRefresh: true, showStatus: true });
+            });
+        }
+
+        loadMacroQuickChips();
 
         // Show Toast Notification
         function showToast(message, type = 'info') {
@@ -546,14 +614,173 @@
             });
         }
 
-        // Format Analysis Text
+        // Format Analysis Text (lightweight markdown renderer)
         function formatAnalysis(text) {
-            // Add some basic formatting
-            return text
-                .replace(/•/g, '<span style="color: var(--accent-cyan);">•</span>')
-                .replace(/📊|📈|📉|🏛️|📰|⚠️|✅|🟢|🔴|⚪/g, match => `<span style="font-size: 1.2em;">${match}</span>`)
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/__(.*?)__/g, '<em>$1</em>');
+            if (!text || typeof text !== 'string') return '';
+
+            const escapeHtml = (str = '') => str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            const formatInline = (str = '') => {
+                let s = escapeHtml(str);
+                s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                s = s.replace(/__(.+?)__/g, '<strong>$1</strong>');
+                s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+                s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+                s = s.replace(
+                    /📊|📈|📉|🏛️|📰|⚠️|✅|🟢|🔴|⚪/g,
+                    (match) => `<span class="analysis-emoji">${match}</span>`
+                );
+                return s;
+            };
+
+            const isTableSeparator = (line = '') => {
+                const cleaned = line.trim().replace(/\|/g, '').replace(/\s/g, '');
+                return cleaned.length > 0 && /^[:\-]+$/.test(cleaned);
+            };
+
+            const splitTableRow = (row = '') => row
+                .trim()
+                .replace(/^\|/, '')
+                .replace(/\|$/, '')
+                .split('|')
+                .map(cell => cell.trim());
+
+            const renderTable = (headerLine, bodyLines) => {
+                const headers = splitTableRow(headerLine);
+                if (!headers.length) return '';
+                const headHtml = headers
+                    .map(h => `<th>${formatInline(h)}</th>`)
+                    .join('');
+                const bodyHtml = bodyLines
+                    .map(line => {
+                        const cells = splitTableRow(line);
+                        return `<tr>${cells.map(c => `<td>${formatInline(c)}</td>`).join('')}</tr>`;
+                    })
+                    .join('');
+
+                return `
+                    <div class="analysis-table-wrap">
+                        <table class="analysis-table">
+                            <thead><tr>${headHtml}</tr></thead>
+                            <tbody>${bodyHtml}</tbody>
+                        </table>
+                    </div>
+                `;
+            };
+
+            const lines = text.replace(/\r\n/g, '\n').split('\n');
+            const htmlParts = [];
+            let i = 0;
+
+            const renderTextBlock = (blockLines) => {
+                const out = [];
+                let paragraph = [];
+                let inList = false;
+
+                const flushParagraph = () => {
+                    if (!paragraph.length) return;
+                    out.push(`<p>${paragraph.map(line => formatInline(line)).join('<br>')}</p>`);
+                    paragraph = [];
+                };
+
+                const closeList = () => {
+                    if (!inList) return;
+                    out.push('</ul>');
+                    inList = false;
+                };
+
+                blockLines.forEach(rawLine => {
+                    const line = rawLine.trimEnd();
+                    const trimmed = line.trim();
+
+                    if (!trimmed) {
+                        flushParagraph();
+                        closeList();
+                        return;
+                    }
+
+                    if (/^-{3,}$/.test(trimmed)) {
+                        flushParagraph();
+                        closeList();
+                        out.push('<hr>');
+                        return;
+                    }
+
+                    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+                    if (heading) {
+                        flushParagraph();
+                        closeList();
+                        const level = Math.min(heading[1].length, 4);
+                        out.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
+                        return;
+                    }
+
+                    const bullet = trimmed.match(/^- (.+)$/);
+                    if (bullet) {
+                        flushParagraph();
+                        if (!inList) {
+                            out.push('<ul>');
+                            inList = true;
+                        }
+                        out.push(`<li>${formatInline(bullet[1])}</li>`);
+                        return;
+                    }
+
+                    closeList();
+                    paragraph.push(trimmed);
+                });
+
+                flushParagraph();
+                closeList();
+                return out.join('\n');
+            };
+
+            while (i < lines.length) {
+                const line = lines[i];
+                const nextLine = lines[i + 1];
+
+                if (
+                    line &&
+                    nextLine &&
+                    line.includes('|') &&
+                    nextLine.includes('|') &&
+                    isTableSeparator(nextLine)
+                ) {
+                    const headerLine = line;
+                    i += 2;
+                    const bodyLines = [];
+                    while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+                        bodyLines.push(lines[i]);
+                        i += 1;
+                    }
+                    htmlParts.push(renderTable(headerLine, bodyLines));
+                    continue;
+                }
+
+                const textBlock = [];
+                while (i < lines.length) {
+                    const cur = lines[i];
+                    const nxt = lines[i + 1];
+                    const nextStartsTable = (
+                        cur &&
+                        nxt &&
+                        cur.includes('|') &&
+                        nxt.includes('|') &&
+                        isTableSeparator(nxt)
+                    );
+                    if (nextStartsTable) break;
+                    textBlock.push(cur);
+                    i += 1;
+                }
+                htmlParts.push(renderTextBlock(textBlock));
+            }
+
+            return htmlParts.join('\n');
         }
 
         // Correlation helpers
@@ -1235,10 +1462,13 @@
 
         function getChartColors() {
             const isLight = document.body.classList.contains('light-mode');
+            const styles = getComputedStyle(document.body);
+            const darkBackground = styles.getPropertyValue('--bg-secondary').trim() || '#1d1616';
+            const darkText = styles.getPropertyValue('--text-secondary').trim() || '#f2caca';
             return {
-                background: isLight ? '#ffffff' : '#12121a',
-                textColor: isLight ? '#333333' : '#a0a0b0',
-                gridColor: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)',
+                background: isLight ? '#ffffff' : darkBackground,
+                textColor: isLight ? '#333333' : darkText,
+                gridColor: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(216, 64, 64, 0.08)',
                 upColor: '#26a69a',
                 downColor: '#ef5350',
                 borderUpColor: '#26a69a',
@@ -1967,7 +2197,9 @@
             if (!calcChart) {
                 // Use calculator theme colors
                 const isLight = document.body.classList.contains('light-mode');
-                const textColor = isLight ? '#333333' : '#a0a0b0';
+                const textColor = isLight
+                    ? '#333333'
+                    : (getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#f2caca');
                 
                 calcChart = LightweightCharts.createChart(chartContainer, {
                     layout: {

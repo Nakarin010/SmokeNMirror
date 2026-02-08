@@ -1,25 +1,25 @@
 :root {
-    --bg-primary: #0a0a0f;
-    --bg-secondary: #12121a;
-    --bg-tertiary: #1a1a24;
-    --bg-card: rgba(26, 26, 36, 0.8);
-    --text-primary: #f0f0f5;
-    --text-secondary: #a0a0b0;
-    --text-muted: #606070;
-    --accent-cyan: #00d4ff;
-    --accent-purple: #a855f7;
+    --bg-primary: #1d1616;
+    --bg-secondary: #271616;
+    --bg-tertiary: #8e1616;
+    --bg-card: rgba(29, 22, 22, 0.85);
+    --text-primary: #eeeeee;
+    --text-secondary: #f2caca;
+    --text-muted: #b98686;
+    --accent-cyan: #d84040;
+    --accent-purple: #8e1616;
     --accent-green: #22c55e;
-    --accent-red: #ef4444;
-    --accent-orange: #f97316;
-    --accent-gold: #eab308;
-    --gradient-main: linear-gradient(135deg, #00d4ff 0%, #a855f7 50%, #f97316 100%);
-    --gradient-card: linear-gradient(145deg, rgba(168, 85, 247, 0.1), rgba(0, 212, 255, 0.05));
-    --border-color: rgba(168, 85, 247, 0.2);
-    --shadow-glow: 0 0 60px rgba(168, 85, 247, 0.15);
+    --accent-red: #d84040;
+    --accent-orange: #f06a6a;
+    --accent-gold: #eeeeee;
+    --gradient-main: linear-gradient(135deg, #8e1616 0%, #d84040 60%, #eeeeee 100%);
+    --gradient-card: linear-gradient(145deg, rgba(142, 22, 22, 0.2), rgba(216, 64, 64, 0.08));
+    --border-color: rgba(216, 64, 64, 0.25);
+    --shadow-glow: 0 0 60px rgba(216, 64, 64, 0.25);
 }
 
 body.light-mode {
-    --bg-primary: #f5f7fb;
+    --bg-primary: #F5F4EB;
     --bg-secondary: #ffffff;
     --bg-tertiary: #e9ecf5;
     --bg-card: rgba(255, 255, 255, 0.9);
@@ -59,7 +59,7 @@ body.light-mode {
 }
 
 body {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     min-height: 100vh;
@@ -130,8 +130,8 @@ body {
     width: 100%;
     height: 100%;
     background-image:
-        linear-gradient(rgba(168, 85, 247, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(168, 85, 247, 0.03) 1px, transparent 1px);
+        linear-gradient(rgba(216, 64, 64, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(216, 64, 64, 0.04) 1px, transparent 1px);
     background-size: 60px 60px;
     pointer-events: none;
     z-index: -1;
@@ -177,7 +177,7 @@ header {
     align-items: center;
     justify-content: center;
     font-size: 1.5rem;
-    box-shadow: 0 4px 20px rgba(168, 85, 247, 0.3);
+    box-shadow: 0 4px 20px rgba(216, 64, 64, 0.3);
 }
 
 .logo h1 {
@@ -233,7 +233,7 @@ header {
     color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.2s ease;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.9rem;
 }
 
@@ -313,7 +313,7 @@ main {
     border: 1px solid var(--border-color);
     border-radius: 16px;
     color: var(--text-secondary);
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     font-size: 1rem;
     font-weight: 500;
     cursor: pointer;
@@ -321,17 +321,17 @@ main {
 }
 
 .tab-btn:hover {
-    background: rgba(168, 85, 247, 0.1);
+    background: rgba(216, 64, 64, 0.12);
     border-color: var(--accent-purple);
     color: var(--text-primary);
     transform: translateY(-2px);
 }
 
 .tab-btn.active {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(0, 212, 255, 0.1));
+    background: linear-gradient(135deg, rgba(142, 22, 22, 0.3), rgba(216, 64, 64, 0.2));
     border-color: var(--accent-purple);
     color: var(--text-primary);
-    box-shadow: 0 4px 30px rgba(168, 85, 247, 0.2);
+    box-shadow: 0 4px 30px rgba(216, 64, 64, 0.25);
 }
 
 .tab-btn small {
@@ -431,7 +431,7 @@ main {
     border: 2px solid var(--border-color);
     border-radius: 16px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 1.125rem;
     transition: all 0.3s ease;
 }
@@ -440,7 +440,7 @@ main {
 .input-wrapper textarea:focus {
     outline: none;
     border-color: var(--accent-purple);
-    box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.1);
+    box-shadow: 0 0 0 4px rgba(216, 64, 64, 0.2);
 }
 
 .input-wrapper input::placeholder,
@@ -461,6 +461,12 @@ main {
     margin-top: 1rem;
 }
 
+.quick-select-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
 .quick-chip {
     padding: 0.5rem 1rem;
     background: var(--bg-secondary);
@@ -473,9 +479,22 @@ main {
 }
 
 .quick-chip:hover {
-    background: rgba(168, 85, 247, 0.1);
+    background: rgba(216, 64, 64, 0.12);
     border-color: var(--accent-purple);
     color: var(--text-primary);
+}
+
+.quick-chip-action {
+    font-family: 'Instrument Serif', serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.4rem 0.9rem;
+    background: transparent;
+}
+
+.quick-chip-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .suggestions-panel {
@@ -503,7 +522,7 @@ main {
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     transition: background 0.2s ease;
 }
@@ -513,16 +532,16 @@ main {
 }
 
 .suggestion-item:hover {
-    background: rgba(168, 85, 247, 0.15);
+    background: rgba(216, 64, 64, 0.18);
 }
 
 .suggestion-item.selected {
-    background: rgba(168, 85, 247, 0.25);
+    background: rgba(216, 64, 64, 0.28);
     outline: 1px solid var(--accent-purple);
 }
 
 .suggestion-ticker {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.85rem;
     color: var(--accent-cyan);
 }
@@ -549,7 +568,7 @@ body.light-mode .suggestion-item.selected {
     border: none;
     border-radius: 16px;
     color: white;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     font-size: 1.125rem;
     font-weight: 600;
     cursor: pointer;
@@ -562,7 +581,7 @@ body.light-mode .suggestion-item.selected {
 
 .analyze-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 40px rgba(168, 85, 247, 0.4);
+    box-shadow: 0 8px 40px rgba(216, 64, 64, 0.4);
 }
 
 .analyze-btn:active {
@@ -664,11 +683,11 @@ body.light-mode .suggestion-item.selected {
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
 }
 
 .version-btn:hover {
-    background: rgba(168, 85, 247, 0.1);
+    background: rgba(216, 64, 64, 0.12);
     color: var(--text-primary);
 }
 
@@ -683,16 +702,99 @@ body.light-mode .suggestion-item.selected {
 }
 
 .results-content {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     line-height: 1.8;
     color: var(--text-secondary);
-    white-space: pre-wrap;
+    white-space: normal;
 }
 
 .results-content strong,
 .results-content b {
     color: var(--accent-cyan);
+}
+
+.results-content h1,
+.results-content h2,
+.results-content h3,
+.results-content h4 {
+    color: var(--text-primary);
+    line-height: 1.35;
+    margin: 1.1rem 0 0.45rem;
+}
+
+.results-content h1 { font-size: 1.3rem; }
+.results-content h2 { font-size: 1.18rem; }
+.results-content h3 { font-size: 1.06rem; }
+.results-content h4 { font-size: 1rem; }
+
+.results-content p {
+    margin: 0.65rem 0;
+}
+
+.results-content ul {
+    margin: 0.5rem 0 0.85rem 1.1rem;
+    padding: 0;
+}
+
+.results-content li {
+    margin: 0.2rem 0;
+}
+
+.results-content hr {
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    margin: 1rem 0;
+}
+
+.results-content code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.86em;
+    background: rgba(216, 64, 64, 0.12);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.08rem 0.35rem;
+    color: var(--text-primary);
+}
+
+.analysis-emoji {
+    font-size: 1.1em;
+    vertical-align: -0.04em;
+}
+
+.analysis-table-wrap {
+    margin: 0.9rem 0 1.1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    overflow: auto;
+    background: var(--bg-secondary);
+}
+
+.analysis-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 620px;
+}
+
+.analysis-table th,
+.analysis-table td {
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.7rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.analysis-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    z-index: 1;
+}
+
+.analysis-table tr:last-child td {
+    border-bottom: none;
 }
 
 /* TradingView Chart Styles */
@@ -718,14 +820,14 @@ body.light-mode .suggestion-item.selected {
 }
 
 .chart-current-price {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 2rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
 .chart-price-change {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 1rem;
     padding: 0.25rem 0.75rem;
     border-radius: 8px;
@@ -752,7 +854,7 @@ body.light-mode .suggestion-item.selected {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     color: var(--text-secondary);
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.85rem;
     font-weight: 500;
     cursor: pointer;
@@ -837,7 +939,7 @@ body.light-mode .suggestion-item.selected {
 .stat-card:hover {
     transform: translateY(-4px);
     border-color: var(--accent-purple);
-    box-shadow: 0 8px 30px rgba(168, 85, 247, 0.15);
+    box-shadow: 0 8px 30px rgba(216, 64, 64, 0.2);
 }
 
 .stat-icon {
@@ -853,7 +955,7 @@ body.light-mode .suggestion-item.selected {
 }
 
 .stat-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 1.5rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -897,7 +999,7 @@ body.light-mode .suggestion-item.selected {
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-primary);
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Instrument Serif', serif;
 }
 
 .correlation-card {
@@ -1155,7 +1257,7 @@ footer a {
     border: 1px solid var(--calc-kraft);
     border-radius: 8px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     transition: all 0.3s ease;
 }
@@ -1174,7 +1276,7 @@ footer a {
     border: 1px solid var(--calc-kraft);
     border-radius: 8px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -1198,7 +1300,7 @@ footer a {
     border: 1px solid var(--calc-kraft);
     border-radius: 8px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     transition: all 0.3s ease;
 }
@@ -1225,7 +1327,7 @@ footer a {
     border: 1px solid var(--calc-kraft);
     border-radius: 8px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 0.95rem;
     transition: all 0.3s ease;
 }
@@ -1302,7 +1404,7 @@ footer a {
 
 .calc-values-table td {
     color: var(--text-secondary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
 }
 
 /* Returns Display */
@@ -1337,7 +1439,7 @@ footer a {
 }
 
 .return-item strong {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Instrument Serif', serif;
     font-size: 1.1rem;
 }
 

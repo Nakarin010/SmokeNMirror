@@ -1838,6 +1838,281 @@ Provide a clear, structured analysis with:
 
 Be concise but thorough. Use data to support your analysis."""
 
+# Macro quick question suggestions (fallback + cache)
+MACRO_SUGGESTION_FALLBACK = [
+    {
+        "label": "Fed Policy",
+        "question": "What is the current Federal Reserve policy outlook and interest rate trajectory?"
+    },
+    {
+        "label": "Bond Yields",
+        "question": "Analyze current US Treasury bond yields and the yield curve shape."
+    },
+    {
+        "label": "Inflation",
+        "question": "What are the latest inflation indicators and PCE trends?"
+    },
+    {
+        "label": "Employment",
+        "question": "Analyze current employment data and labor market conditions."
+    },
+    {
+        "label": "GDP Growth",
+        "question": "What is the current GDP growth outlook for the US economy?"
+    },
+    {
+        "label": "Yield Curve",
+        "question": "Analyze the yield curve inversion risk and recession probability."
+    }
+]
+
+MACRO_SUGGESTION_TTL = int(os.getenv("MACRO_SUGGESTION_TTL", "21600"))  # 6 hours
+MACRO_SUGGESTION_COUNT = int(os.getenv("MACRO_SUGGESTION_COUNT", "6"))
+_macro_suggestion_cache = {"ts": 0.0, "items": MACRO_SUGGESTION_FALLBACK}
+_macro_recent_questions: list[str] = []
+MACRO_RECENT_HISTORY_LIMIT = int(os.getenv("MACRO_RECENT_HISTORY_LIMIT", "120"))
+
+
+def _strip_llm_fences(content: str) -> str:
+    """Strip markdown code fences from LLM output."""
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    return text
+
+
+def _normalize_macro_suggestions(raw: Any, limit: int) -> list[dict]:
+    """Normalize LLM output to [{label, question}] with safe defaults."""
+    if isinstance(raw, dict) and "suggestions" in raw:
+        raw = raw["suggestions"]
+    if not isinstance(raw, list):
+        return []
+
+    suggestions = []
+    seen = set()
+    for item in raw:
+        if isinstance(item, str):
+            label = item.strip()
+            question = item.strip()
+        elif isinstance(item, dict):
+            label = str(item.get("label", "")).strip()
+            question = str(item.get("question", "")).strip()
+        else:
+            continue
+
+        if not label or not question:
+            continue
+
+        key = question.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        suggestions.append({
+            "label": label[:60],
+            "question": question
+        })
+        if len(suggestions) >= limit:
+            break
+
+    return suggestions
+
+
+def _build_macro_period_context() -> dict:
+    """Build current period labels to keep prompts time-relevant."""
+    now = datetime.now()
+    quarter = (now.month - 1) // 3 + 1
+    hour = now.hour
+    if hour < 12:
+        day_part = "morning"
+    elif hour < 17:
+        day_part = "afternoon"
+    else:
+        day_part = "evening"
+    return {
+        "date_label": now.strftime("%B %d, %Y"),
+        "month_label": now.strftime("%B %Y"),
+        "quarter_label": f"Q{quarter} {now.year}",
+        "week_label": f"Week of {now.strftime('%B %d, %Y')}",
+        "day_part": day_part,
+        "year": now.year,
+    }
+
+
+def _normalize_exclusion_list(exclude_questions: list[str] | None) -> set[str]:
+    """Normalize exclude values for matching."""
+    if not exclude_questions:
+        return set()
+    return {q.strip().lower() for q in exclude_questions if isinstance(q, str) and q.strip()}
+
+
+def _append_period_context(question: str, period_context: dict) -> str:
+    """Ensure each generated question references a concrete current period."""
+    q = question.strip().rstrip("?")
+    lower = q.lower()
+    period_markers = (
+        "this week",
+        "this month",
+        "this quarter",
+        period_context["quarter_label"].lower(),
+        str(period_context["year"]),
+    )
+    if any(marker in lower for marker in period_markers):
+        return f"{q}?"
+    return f"{q} for {period_context['quarter_label']}?"
+
+
+def _filter_macro_suggestions(
+    suggestions: list[dict],
+    exclusions: set[str],
+    limit: int,
+    period_context: dict
+) -> list[dict]:
+    """Drop excluded/duplicate items and enforce period context."""
+    filtered = []
+    seen = set()
+    for item in suggestions:
+        label = str(item.get("label", "")).strip()
+        question = str(item.get("question", "")).strip()
+        if not label or not question:
+            continue
+        question = _append_period_context(question, period_context)
+        key = question.lower()
+        if key in seen or key in exclusions:
+            continue
+        seen.add(key)
+        filtered.append({"label": label, "question": question})
+        if len(filtered) >= limit:
+            break
+    return filtered
+
+
+def _make_period_fallback_questions(exclusions: set[str], limit: int, period_context: dict) -> list[dict]:
+    """Deterministic fallback that still stays unique and period-relevant."""
+    base_templates = [
+        ("Fed Path", "How should investors position for Fed policy shifts"),
+        ("Curve Risk", "What does the Treasury curve imply for recession risk"),
+        ("Inflation Trend", "Which inflation components matter most for markets"),
+        ("Labor Check", "How is labor-market momentum changing and why"),
+        ("Growth Pulse", "What signals point to acceleration or slowdown in US growth"),
+        ("Risk Radar", "Which global macro risks could reprice equities and credit"),
+        ("USD Outlook", "How could rate differentials shape the US dollar path"),
+        ("Duration Call", "Is duration attractive given inflation and policy uncertainty"),
+        ("Credit Spread", "What macro data could widen or tighten credit spreads"),
+        ("Policy Divergence", "How might Fed, ECB, and PBOC divergence impact flows"),
+    ]
+    generated = []
+    for label, stem in base_templates:
+        question = _append_period_context(stem, period_context)
+        key = question.lower()
+        if key in exclusions:
+            continue
+        generated.append({"label": label, "question": question})
+        if len(generated) >= limit:
+            break
+    return generated
+
+
+def _generate_macro_suggestions(exclusions: set[str] | None = None) -> list[dict]:
+    """Generate macro question suggestions via LLM if configured."""
+    llm = None
+    if mistral_key:
+        llm = _get_llm_mistral()
+    elif groqK:
+        llm = _get_llm_groq()
+    if not llm:
+        return []
+
+    period_context = _build_macro_period_context()
+    exclusion_text = "\n".join(f"- {q}" for q in sorted(exclusions or set()))
+    nonce = f"{time.time_ns()}-{random.randint(1000, 9999)}"
+    prompt = f"""You are a macro strategist. Today is {period_context['date_label']} ({period_context['day_part']}).
+Current period context:
+- Month: {period_context['month_label']}
+- Quarter: {period_context['quarter_label']}
+- Week: {period_context['week_label']}
+
+Generate {MACRO_SUGGESTION_COUNT} concise template questions for a macro analysis tool.
+Requirements:
+- Each question should be 10-18 words.
+- Cover a mix of Fed policy, inflation, labor, growth, yields, and global risks.
+- Provide a short label (2-3 words, Title Case) for each question.
+- Every question must explicitly reference current timing: "this week", "this month", "this quarter", or "{period_context['quarter_label']}".
+- Do not repeat or paraphrase these prior questions:
+{exclusion_text if exclusion_text else "- none"}
+- Use this nonce to diversify output across refreshes: {nonce}
+
+Return ONLY valid JSON (no markdown, no code blocks):
+[
+  {{"label": "Fed Policy", "question": "What is the current Federal Reserve policy outlook and rate trajectory?"}}
+]
+"""
+
+    response = llm.invoke(prompt)
+    content = response.content if hasattr(response, "content") else str(response)
+    parsed = json.loads(_strip_llm_fences(content))
+    normalized = _normalize_macro_suggestions(parsed, MACRO_SUGGESTION_COUNT)
+    return _filter_macro_suggestions(
+        normalized,
+        exclusions or set(),
+        MACRO_SUGGESTION_COUNT,
+        period_context
+    )
+
+
+def get_macro_suggestions(force_refresh: bool = False, exclude_questions: list[str] | None = None) -> list[dict]:
+    """Get macro suggestions with optional forced refresh and exclusion filters."""
+    now = time.time()
+    period_context = _build_macro_period_context()
+    exclusions = _normalize_exclusion_list(exclude_questions)
+    exclusions.update(q.lower() for q in _macro_recent_questions)
+    cached = _macro_suggestion_cache.get("items", [])
+    cache_is_fresh = now - _macro_suggestion_cache.get("ts", 0.0) < MACRO_SUGGESTION_TTL
+    if not force_refresh and cached and cache_is_fresh:
+        cached_filtered = _filter_macro_suggestions(
+            cached,
+            exclusions,
+            MACRO_SUGGESTION_COUNT,
+            period_context
+        )
+        if cached_filtered:
+            return cached_filtered
+
+    suggestions = []
+    try:
+        suggestions = _generate_macro_suggestions(exclusions)
+    except Exception as e:
+        logger.warning(f"Macro suggestions generation failed: {e}")
+
+    if not suggestions:
+        suggestions = _filter_macro_suggestions(
+            MACRO_SUGGESTION_FALLBACK,
+            exclusions,
+            MACRO_SUGGESTION_COUNT,
+            period_context
+        )
+
+    if len(suggestions) < MACRO_SUGGESTION_COUNT:
+        extra = _make_period_fallback_questions(
+            exclusions.union({item["question"].lower() for item in suggestions}),
+            MACRO_SUGGESTION_COUNT - len(suggestions),
+            period_context
+        )
+        suggestions.extend(extra)
+
+    if not suggestions:
+        suggestions = _make_period_fallback_questions(exclusions, MACRO_SUGGESTION_COUNT, period_context)
+
+    _macro_suggestion_cache["items"] = suggestions
+    _macro_suggestion_cache["ts"] = now
+    _macro_recent_questions.extend(item["question"] for item in suggestions)
+    if len(_macro_recent_questions) > MACRO_RECENT_HISTORY_LIMIT:
+        del _macro_recent_questions[:-MACRO_RECENT_HISTORY_LIMIT]
+    return suggestions
+
 # ============================================
 # LAZY LLM INITIALIZATION (Memory Optimization)
 # ============================================
@@ -2921,6 +3196,44 @@ def analyze_macro():
     except Exception as e:
         logger.exception(f"Macro analysis error: {e}")
         return jsonify({'error': 'Analysis failed. Please try again.'}), 500
+
+
+@app.route('/api/suggestions/macro', methods=['GET', 'POST'])
+def macro_suggestions():
+    """Return macro question template suggestions."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        force_refresh = bool(payload.get('refresh')) or request.args.get('refresh') == '1'
+        exclude_raw = payload.get('exclude')
+        if exclude_raw is None:
+            exclude_raw = request.args.getlist('exclude')
+
+        if isinstance(exclude_raw, str):
+            exclude_questions = [line.strip() for line in exclude_raw.split('\n') if line.strip()]
+        elif isinstance(exclude_raw, list):
+            exclude_questions = [str(item).strip() for item in exclude_raw if str(item).strip()]
+        else:
+            exclude_questions = []
+
+        suggestions = get_macro_suggestions(
+            force_refresh=force_refresh,
+            exclude_questions=exclude_questions
+        )
+        return jsonify({
+            'suggestions': suggestions,
+            'refresh': force_refresh,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"Macro suggestions error: {e}")
+        return jsonify({
+            'suggestions': MACRO_SUGGESTION_FALLBACK,
+            'timestamp': datetime.now().isoformat(),
+            'fallback': True
+        })
 
 
 @app.route('/api/tickers/search')
