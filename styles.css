@@ -703,8 +703,8 @@ body.light-mode .suggestion-item.selected {
 
 .results-content {
     font-family: 'Instrument Serif', serif;
-    font-size: 1.25rem;
-    line-height: 1.8;
+    font-size: 2.1875rem; /* 35px */
+    line-height: 1.6;
     color: var(--text-secondary);
     white-space: normal;
 }
@@ -719,32 +719,32 @@ body.light-mode .suggestion-item.selected {
 .results-content h3,
 .results-content h4 {
     color: var(--text-primary);
-    line-height: 1.35;
-    margin: 1.1rem 0 0.45rem;
+    line-height: 1.3;
+    margin: 1.5rem 0 0.75rem;
 }
 
-.results-content h1 { font-size: 1.7rem; }
-.results-content h2 { font-size: 1.55rem; text-align: left; }
-.results-content h3 { font-size: 1.4rem; }
-.results-content h4 { font-size: 1.25rem; }
+.results-content h1 { font-size: 2.8125rem; } /* 45px */
+.results-content h2 { font-size: 2.625rem; text-align: left; } /* 42px */
+.results-content h3 { font-size: 2.4375rem; } /* 39px */
+.results-content h4 { font-size: 2.25rem; } /* 36px */
 
 .results-content p {
-    margin: 0.65rem 0;
+    margin: 1.25rem 0;
 }
 
 .results-content ul {
-    margin: 0.5rem 0 0.85rem 1.1rem;
+    margin: 1rem 0 1.5rem 1.75rem;
     padding: 0;
 }
 
 .results-content li {
-    margin: 0.2rem 0;
+    margin: 0.5rem 0;
 }
 
 .results-content hr {
     border: 0;
     border-top: 1px solid var(--border-color);
-    margin: 1rem 0;
+    margin: 2rem 0;
 }
 
 .results-content code {
@@ -752,8 +752,8 @@ body.light-mode .suggestion-item.selected {
     font-size: 0.86em;
     background: rgba(216, 64, 64, 0.12);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 0.08rem 0.35rem;
+    border-radius: 8px;
+    padding: 0.2rem 0.5rem;
     color: var(--text-primary);
 }
 
@@ -763,9 +763,9 @@ body.light-mode .suggestion-item.selected {
 }
 
 .analysis-table-wrap {
-    margin: 0.9rem 0 1.1rem;
-    border: 1px solid var(--border-color);
-    border-radius: 14px;
+    margin: 2rem 0;
+    border: 2px solid var(--border-color);
+    border-radius: 20px;
     overflow: auto;
     background: var(--bg-secondary);
 }
@@ -773,13 +773,13 @@ body.light-mode .suggestion-item.selected {
 .analysis-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 620px;
+    min-width: 800px;
 }
 
 .analysis-table th,
 .analysis-table td {
     border-bottom: 1px solid var(--border-color);
-    padding: 0.7rem 0.75rem;
+    padding: 1.25rem 1.5rem;
     text-align: left;
     vertical-align: top;
 }
