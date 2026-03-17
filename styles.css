@@ -703,7 +703,7 @@ body.light-mode .suggestion-item.selected {
 
 .results-content {
     font-family: 'Instrument Serif', serif;
-    font-size: 0.95rem;
+    font-size: 1.25rem;
     line-height: 1.8;
     color: var(--text-secondary);
     white-space: normal;
@@ -723,10 +723,10 @@ body.light-mode .suggestion-item.selected {
     margin: 1.1rem 0 0.45rem;
 }
 
-.results-content h1 { font-size: 1.3rem; }
-.results-content h2 { font-size: 1.18rem; }
-.results-content h3 { font-size: 1.06rem; }
-.results-content h4 { font-size: 1rem; }
+.results-content h1 { font-size: 1.7rem; }
+.results-content h2 { font-size: 1.55rem; text-align: left; }
+.results-content h3 { font-size: 1.4rem; }
+.results-content h4 { font-size: 1.25rem; }
 
 .results-content p {
     margin: 0.65rem 0;
